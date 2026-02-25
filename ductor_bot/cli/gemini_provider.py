@@ -13,7 +13,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ductor_bot.cli.auth import gemini_api_key_mode_selected
-from ductor_bot.cli.base import _CREATION_FLAGS, BaseCLI, CLIConfig, docker_wrap
+from ductor_bot.cli.base import (
+    _CREATION_FLAGS,
+    BaseCLI,
+    CLIConfig,
+    _feed_stdin_and_close,
+    docker_wrap,
+)
 from ductor_bot.cli.gemini_events import extract_result_text, extract_text, parse_gemini_stream_line
 from ductor_bot.cli.gemini_utils import (
     create_system_prompt_file,
@@ -389,11 +395,7 @@ class GeminiCLI(BaseCLI):
 
 async def _feed_prompt(process: asyncio.subprocess.Process, prompt: str) -> None:
     """Write prompt to stdin and close the pipe."""
-    if process.stdin is None:
-        return
-    process.stdin.write(prompt.encode())
-    await process.stdin.drain()
-    process.stdin.close()
+    await _feed_stdin_and_close(process, prompt)
 
 
 async def _finish_stream_process(

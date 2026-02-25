@@ -35,6 +35,7 @@ def is_abort_trigger(text: str) -> bool:
 def is_abort_message(text: str) -> bool:
     """Return *True* if *text* is a ``/stop`` command or a bare-word abort."""
     stripped = text.strip()
-    if stripped.lower() == "/stop":
+    command = stripped.lower().split(None, 1)[0] if stripped else ""
+    if command == "/stop" or command.startswith("/stop@"):
         return True
     return is_abort_trigger(stripped)

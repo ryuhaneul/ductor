@@ -20,6 +20,13 @@ Telegram Update
        - normal/streaming flow -> CLIService
   -> CLI provider subprocess (Claude or Codex or Gemini)
   -> Telegram output (stream edits/appends, buttons, files)
+
+Direct API message (optional, `api.enabled=true`)
+  -> ApiServer (`/ws`)
+  -> per-chat API lock + auth/session routing
+  -> Orchestrator.handle_message_streaming(...)
+  -> CLI provider subprocess (Claude or Codex or Gemini)
+  -> WebSocket stream events + final result
 ```
 
 Also running in background:
@@ -27,12 +34,16 @@ Also running in background:
 - `CronObserver`: schedules `cron_jobs.json` entries.
 - `HeartbeatObserver`: periodic checks in existing sessions.
 - `WebhookObserver`: HTTP ingress for external triggers.
-- `CleanupObserver`: daily retention cleanup for Telegram file directories.
+- `CleanupObserver`: daily retention cleanup for workspace file directories.
 - `GeminiCacheObserver`: periodic Gemini model-cache refresh (`~/.ductor/config/gemini_models.json`).
 - `CodexCacheObserver`: periodic Codex model-cache refresh (`~/.ductor/config/codex_models.json`).
 - `UpdateObserver`: periodic PyPI version check + Telegram notification (upgradeable installs only).
 - Rule-sync task: keeps existing `CLAUDE.md`, `AGENTS.md`, `GEMINI.md` siblings mtime-synced inside `~/.ductor/workspace/`.
 - Skill-sync task: syncs skills across `~/.ductor/workspace/skills/`, `~/.claude/skills/`, `~/.codex/skills/`, `~/.gemini/skills/`.
+
+Optional network service:
+
+- `ApiServer`: direct WebSocket + HTTP file endpoints (`/ws`, `/health`, `/files`, `/upload`).
 
 ## Startup Flow
 
@@ -76,7 +87,8 @@ Default path:
 10. Start `CodexCacheObserver` (`~/.ductor/config/codex_models.json`).
 11. Create `CronObserver` and `WebhookObserver` with shared Codex cache.
 12. Start cron, heartbeat, webhook, cleanup observers.
-13. Start rule-sync and skill-sync watcher tasks.
+13. If `api.enabled=true`: start `ApiServer` (auto-generate token when empty, wire message/abort handlers and file context).
+14. Start rule-sync and skill-sync watcher tasks.
 
 `init_workspace()` is called in both `__main__.py` and `Orchestrator.create()`; behavior is idempotent.
 
@@ -148,6 +160,26 @@ Bot runtime path uses `bot/message_dispatch.py`:
   - non-error stream with accumulated text -> return accumulated text,
   - otherwise retry non-streaming and mark `stream_fallback=True`.
 
+## Direct API Flow
+
+`ApiServer` (`ductor_bot/api/server.py`) runs independently from aiogram and calls orchestrator callbacks directly.
+
+Per connection:
+
+1. `ws://<host>:<port>/ws` handshake.
+2. First frame must be auth JSON with token (10s timeout).
+3. Session `chat_id` defaults to first `allowed_user_ids` entry (fallback `1`); auth payload may override.
+4. `message` frames run under per-`chat_id` lock and use streaming callbacks (`text_delta`, `tool_activity`, `system_status`, `result`).
+5. `abort` frame or `/stop` message calls orchestrator abort path (`ProcessRegistry.kill_all`).
+
+Additional HTTP endpoints:
+
+- `GET /health` (no auth),
+- `GET /files?path=...` (Bearer auth + `file_access` root checks),
+- `POST /upload` (Bearer auth + multipart save to `workspace/api_files/YYYY-MM-DD/`).
+
+Current wiring note: `config.api.chat_id` exists in schema but is not used by startup defaulting.
+
 ## Callback Query Flow
 
 `TelegramBot._on_callback_query()`:
@@ -214,7 +246,8 @@ Lock usage is path-dependent (e.g., queue cancel and upgrade callbacks are handl
 
 - Hourly check in `user_timezone`.
 - Runs at most once per day when local hour equals `cleanup.check_hour`.
-- Deletes old top-level files in `workspace/telegram_files/` and `workspace/output_to_user/`.
+- Deletes old top-level files in `workspace/telegram_files/`, `workspace/output_to_user/`, and `workspace/api_files/`.
+- Deletion is non-recursive, so files inside date subdirectories (`YYYY-MM-DD/`) are not cleaned by current logic.
 
 ## Restart & Supervisor
 
@@ -269,7 +302,7 @@ Rule deployment (`workspace/rules_selector.py`):
 ## Logging Context
 
 - `log_context.py` uses `ContextVar` fields (`operation`, `chat_id`, `session_id`) to enrich logs as `[op:chat_id:session_id_8]`.
-- ingress operation labels: `msg`, `cb`, `cron`, `hb`, `wh`.
+- ingress operation labels: `msg`, `cb`, `cron`, `hb`, `wh`, `api`.
 - `logging_config.py` configures colored console logs and rotating file logs (`~/.ductor/logs/agent.log`).
 
 ## Core Design Trade-offs

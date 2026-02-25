@@ -9,10 +9,11 @@ Daily retention cleanup for workspace file-drop directories.
 
 ## Purpose
 
-Prevents unbounded growth of:
+Targets retention cleanup in:
 
 - `~/.ductor/workspace/telegram_files/`
 - `~/.ductor/workspace/output_to_user/`
+- `~/.ductor/workspace/api_files/`
 
 ## Config (`AgentConfig.cleanup`)
 
@@ -21,6 +22,7 @@ Prevents unbounded growth of:
 | `enabled` | `bool` | `true` | Master toggle |
 | `telegram_files_days` | `int` | `30` | Retention for `telegram_files` |
 | `output_to_user_days` | `int` | `30` | Retention for `output_to_user` |
+| `api_files_days` | `int` | `30` | Retention for `api_files` |
 | `check_hour` | `int` | `3` | Local hour (`user_timezone`) when cleanup is eligible |
 
 ## Lifecycle
@@ -47,6 +49,11 @@ Execution detail: actual deletion work runs in `asyncio.to_thread(_run_cleanup, 
 - top-level files only (non-recursive)
 - ignores subdirectories
 - logs warnings on per-file deletion errors
+
+Current behavior implication:
+
+- Telegram/API uploads are saved under date subdirectories (`YYYY-MM-DD/`),
+- because cleanup is non-recursive, those subdirectory files are currently not deleted by this observer.
 
 ## Wiring
 

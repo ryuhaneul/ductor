@@ -117,7 +117,8 @@ The `Dockerfile.sandbox` includes Chrome/Chromium runtime dependencies (libgbm, 
 
 - `check_pypi()` fetches latest package metadata
 - `UpdateObserver` checks periodically and notifies once per new version
-- `perform_upgrade()` runs `pipx upgrade --force ductor` (or pip fallback)
+- `check_pypi(fresh=True)` adds cache-busting and no-cache headers for manual `/upgrade` checks
+- `perform_upgrade_pipeline()` runs generic upgrade, verifies installed version with short settle polling, and performs one forced retry when needed
 - upgrade sentinel stores old/new version + chat for post-restart confirmation
 
 ## Supervisor

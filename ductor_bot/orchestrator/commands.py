@@ -107,7 +107,7 @@ async def cmd_upgrade(_orch: Orchestrator, _chat_id: int, _text: str) -> Orchest
             ),
         )
 
-    info = await check_pypi()
+    info = await check_pypi(fresh=True)
 
     if info is None:
         return OrchestratorResult(

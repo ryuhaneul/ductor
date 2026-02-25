@@ -11,12 +11,13 @@ import sys
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
-from ductor_bot.infra.version import VersionInfo, check_pypi
+from ductor_bot.infra.version import VersionInfo, _parse_version, check_pypi
 
 logger = logging.getLogger(__name__)
 
 _CHECK_INTERVAL_S = 3600  # 60 minutes
 _INITIAL_DELAY_S = 60  # 1 minute after startup
+_VERIFY_DELAYS_S: tuple[float, ...] = (0.15, 0.35, 0.75, 1.5)
 
 VersionCallback = Callable[[VersionInfo], Awaitable[None]]
 
@@ -59,24 +60,56 @@ class UpdateObserver:
 
 
 async def perform_upgrade() -> tuple[bool, str]:
-    """Run the package upgrade. Returns ``(success, output)``.
+    """Run the package upgrade. Returns ``(success, output)``."""
+    return await _perform_upgrade_impl(target_version=None, force_reinstall=False)
 
-    Refuses to upgrade dev/editable installs -- those should use ``git pull``.
-    Sets ``PIP_NO_CACHE_DIR=1`` to avoid serving stale wheels from the pip
-    cache when PyPI CDN hasn't propagated the new version yet.
-    """
-    from ductor_bot.infra.install import detect_install_mode
 
-    mode = detect_install_mode()
-    if mode == "dev":
-        return False, "Running from source (editable install). Use `git pull` to update."
+def _normalize_target_version(target_version: str | None) -> str | None:
+    """Normalize optional target version value for upgrade commands."""
+    if target_version is None:
+        return None
+    normalized = target_version.strip()
+    if not normalized or normalized.lower() == "latest":
+        return None
+    return normalized
 
-    env = {**os.environ, "PIP_NO_CACHE_DIR": "1"}
+
+def _is_newer_version(candidate: str, current: str) -> bool:
+    """Return True when *candidate* is strictly newer than *current*."""
+    return _parse_version(candidate) > _parse_version(current)
+
+
+def _build_upgrade_command(
+    *,
+    mode: str,
+    target_version: str | None,
+    force_reinstall: bool,
+) -> list[str]:
+    """Build provider-specific upgrade command."""
     if mode == "pipx":
-        cmd = ["pipx", "upgrade", "--force", "ductor"]
-    else:
-        cmd = [sys.executable, "-m", "pip", "install", "--upgrade", "ductor"]
+        if target_version is None and not force_reinstall:
+            return ["pipx", "upgrade", "--force", "ductor"]
+        spec = f"ductor=={target_version}" if target_version else "ductor"
+        cmd = ["pipx", "runpip", "ductor", "install", "--upgrade", "--no-cache-dir"]
+        if force_reinstall:
+            cmd.append("--force-reinstall")
+        cmd.append(spec)
+        return cmd
 
+    spec = f"ductor=={target_version}" if target_version else "ductor"
+    cmd = [sys.executable, "-m", "pip", "install", "--upgrade", "--no-cache-dir"]
+    if force_reinstall:
+        cmd.append("--force-reinstall")
+    cmd.append(spec)
+    return cmd
+
+
+async def _run_upgrade_command(
+    cmd: list[str],
+    *,
+    env: dict[str, str],
+) -> tuple[bool, str]:
+    """Execute one upgrade command and return ``(success, output)``."""
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
@@ -86,6 +119,44 @@ async def perform_upgrade() -> tuple[bool, str]:
     stdout, _ = await proc.communicate()
     output = stdout.decode(errors="replace") if stdout else ""
     return (proc.returncode or 0) == 0, output
+
+
+async def _perform_upgrade_impl(
+    *,
+    target_version: str | None,
+    force_reinstall: bool,
+) -> tuple[bool, str]:
+    """Run upgrade command with optional target pin and reinstall mode.
+
+    Refuses to upgrade dev/editable installs -- those should use ``git pull``.
+    Sets ``PIP_NO_CACHE_DIR=1`` to avoid stale local wheel cache.
+    """
+    from ductor_bot.infra.install import detect_install_mode
+
+    mode = detect_install_mode()
+    if mode == "dev":
+        return False, "Running from source (editable install). Use `git pull` to update."
+
+    normalized_target = _normalize_target_version(target_version)
+    env = {**os.environ, "PIP_NO_CACHE_DIR": "1"}
+    cmd = _build_upgrade_command(
+        mode=mode,
+        target_version=normalized_target,
+        force_reinstall=force_reinstall,
+    )
+    ok, output = await _run_upgrade_command(cmd, env=env)
+    if ok:
+        return True, output
+
+    # Older pipx setups may not support/handle runpip as expected.
+    # Fall back to plain pipx upgrade so we keep behavior resilient.
+    if mode == "pipx" and normalized_target is not None:
+        fallback_cmd = ["pipx", "upgrade", "--force", "ductor"]
+        fb_ok, fb_output = await _run_upgrade_command(fallback_cmd, env=env)
+        combined = "\n\n".join(part for part in (output.strip(), fb_output.strip()) if part)
+        return fb_ok, combined
+
+    return False, output
 
 
 async def get_installed_version() -> str:
@@ -103,6 +174,79 @@ async def get_installed_version() -> str:
     )
     stdout, _ = await proc.communicate()
     return stdout.decode().strip() if stdout else "0.0.0"
+
+
+async def _wait_for_version_change(previous_version: str) -> str:
+    """Wait briefly for package metadata to settle, then return installed version."""
+    installed = await get_installed_version()
+    if installed != previous_version:
+        return installed
+    for delay in _VERIFY_DELAYS_S:
+        await asyncio.sleep(delay)
+        installed = await get_installed_version()
+        if installed != previous_version:
+            return installed
+    return previous_version
+
+
+def _combine_outputs(outputs: list[str]) -> str:
+    """Combine command outputs into one readable block."""
+    parts = [part.strip() for part in outputs if part and part.strip()]
+    return "\n\n".join(parts)
+
+
+async def _resolve_retry_target(current_version: str, target_version: str | None) -> str | None:
+    """Resolve retry target version for forced second attempt."""
+    normalized_target = _normalize_target_version(target_version)
+    if normalized_target and _is_newer_version(normalized_target, current_version):
+        return normalized_target
+
+    info = await check_pypi(fresh=True)
+    if info and _is_newer_version(info.latest, current_version):
+        return info.latest
+    return None
+
+
+async def perform_upgrade_pipeline(
+    *,
+    current_version: str,
+    target_version: str | None = None,
+) -> tuple[bool, str, str]:
+    """Upgrade and verify with one deterministic retry path.
+
+    Strategy:
+    1. Run normal upgrade command.
+    2. Verify installed version with short settle polling.
+    3. If unchanged (or initial attempt fails), resolve a retry target and
+       perform one forced reinstall attempt pinned to that version.
+
+    Returns:
+        ``(changed, installed_version, output)``
+    """
+    outputs: list[str] = []
+
+    ok, output = await _perform_upgrade_impl(target_version=None, force_reinstall=False)
+    outputs.append(output)
+    if ok:
+        installed = await _wait_for_version_change(current_version)
+        if installed != current_version:
+            return True, installed, _combine_outputs(outputs)
+
+    retry_target = await _resolve_retry_target(current_version, target_version)
+    if retry_target is None:
+        return False, current_version, _combine_outputs(outputs)
+
+    retry_ok, retry_output = await _perform_upgrade_impl(
+        target_version=retry_target,
+        force_reinstall=True,
+    )
+    outputs.append(retry_output)
+    if not retry_ok:
+        return False, current_version, _combine_outputs(outputs)
+
+    installed = await _wait_for_version_change(current_version)
+    changed = installed != current_version
+    return changed, installed, _combine_outputs(outputs)
 
 
 # ---------------------------------------------------------------------------

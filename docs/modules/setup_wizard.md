@@ -104,7 +104,8 @@ Windows-specific behavior:
 
 1. check PyPI version
 2. if update available, send inline buttons
-3. callback `upg:yes:<version>` runs upgrade, writes sentinel, exits with restart code
-4. startup consumes sentinel and sends completion message
+3. callback `upg:yes:<version>` runs upgrade pipeline with verification + one automatic forced retry when needed
+4. on confirmed version change: write sentinel and exit with restart code
+5. startup consumes sentinel and sends completion message
 
 `UpdateObserver` runs in bot startup only for upgradeable installs (`pipx`/`pip`, not dev mode).

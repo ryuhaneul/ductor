@@ -26,7 +26,7 @@ Normalization detail:
 - onboarding and runtime config load normalize `gemini_api_key` default to string `"null"` in persisted JSON for backward compatibility.
 - `AgentConfig` validator converts null-like text (`""`, `"null"`, `"none"`) to `None` at runtime.
 
-Runtime edits persisted through config helpers include `/model` changes (model/provider/reasoning) and webhook token auto-generation.
+Runtime edits persisted through config helpers include `/model` changes (model/provider/reasoning), webhook token auto-generation, and API token auto-generation.
 
 ## `AgentConfig` (`ductor_bot/config.py`)
 
@@ -47,7 +47,7 @@ Runtime edits persisted through config helpers include `/model` changes (model/p
 | `permission_mode` | `str` | `"bypassPermissions"` | Provider sandbox/approval mode |
 | `cli_timeout` | `float` | `600.0` | Timeout per CLI call (seconds) |
 | `reasoning_effort` | `str` | `"medium"` | Default Codex reasoning level |
-| `file_access` | `str` | `"all"` | Outgoing file-send scope (`all`, `home`, `workspace`) |
+| `file_access` | `str` | `"all"` | File access scope (`all`, `home`, `workspace`) for Telegram sends and API `GET /files` |
 | `gemini_api_key` | `str \| None` | `None` | Config fallback key injected for Gemini API-key mode |
 | `telegram_token` | `str` | `""` | Telegram bot token |
 | `allowed_user_ids` | `list[int]` | `[]` | Telegram allowlist |
@@ -56,6 +56,7 @@ Runtime edits persisted through config helpers include `/model` changes (model/p
 | `heartbeat` | `HeartbeatConfig` | see below | Background heartbeat config |
 | `cleanup` | `CleanupConfig` | see below | Daily file-retention cleanup |
 | `webhooks` | `WebhookConfig` | see below | Webhook HTTP server config |
+| `api` | `ApiConfig` | see below | Direct WebSocket API server config |
 | `cli_parameters` | `CLIParametersConfig` | see below | Provider-specific extra CLI flags |
 
 ## `CLIParametersConfig`
@@ -152,7 +153,13 @@ Disabled by default because it exposes the host cache directory to the sandbox.
 | `enabled` | `bool` | `true` | Master toggle |
 | `telegram_files_days` | `int` | `30` | Retention in `workspace/telegram_files/` |
 | `output_to_user_days` | `int` | `30` | Retention in `workspace/output_to_user/` |
+| `api_files_days` | `int` | `30` | Retention in `workspace/api_files/` |
 | `check_hour` | `int` | `3` | Local hour in `user_timezone` for cleanup run |
+
+Cleanup implementation detail:
+
+- cleanup is non-recursive (`_delete_old_files` checks only top-level files),
+- media/API uploads are stored in date subdirectories (`.../YYYY-MM-DD/...`), so those uploaded files are currently not deleted by this observer.
 
 ## `WebhookConfig`
 
@@ -164,6 +171,23 @@ Disabled by default because it exposes the host cache directory to the sandbox.
 | `token` | `str` | `""` | Global bearer fallback token (auto-generated when webhooks start) |
 | `max_body_bytes` | `int` | `262144` | Max request body size |
 | `rate_limit_per_minute` | `int` | `30` | Sliding-window rate limit |
+
+## `ApiConfig`
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `enabled` | `bool` | `false` | Master toggle |
+| `host` | `str` | `"0.0.0.0"` | Bind address |
+| `port` | `int` | `8741` | API HTTP/WebSocket port |
+| `token` | `str` | `""` | Bearer/WebSocket auth token (auto-generated when API starts) |
+| `chat_id` | `int` | `0` | Present in config schema; see runtime note below |
+| `allow_public` | `bool` | `false` | Suppresses Tailscale-not-detected warning |
+
+Runtime note (`Orchestrator._start_api_server` + `ApiServer._authenticate`):
+
+- default API session chat ID currently comes from first `allowed_user_ids` entry (fallback `1`),
+- per-connection auth payload may override via `{"type":"auth","chat_id":...}`,
+- `config.api.chat_id` is currently not consumed by orchestrator startup wiring.
 
 ## Model Resolution
 

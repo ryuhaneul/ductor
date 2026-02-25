@@ -333,25 +333,19 @@ class TestUpgradeCli:
         paths = _make_paths(tmp_path)
         paths.ductor_home.mkdir(parents=True)
 
-        upgrade_result = MagicMock(returncode=0, stdout="upgraded ductor", stderr="")
-        verify_result = MagicMock(returncode=0, stdout="9.9.9\n", stderr="")
-
         with (
             patch("ductor_bot.infra.install.detect_install_mode", return_value="pipx"),
             patch("ductor_bot.__main__.resolve_paths", return_value=paths),
             patch(
-                "ductor_bot.__main__.subprocess.run",
-                side_effect=[upgrade_result, verify_result],
-            ) as mock_run,
+                "ductor_bot.infra.updater.perform_upgrade_pipeline",
+                new=AsyncMock(return_value=(True, "9.9.9", "upgraded ductor")),
+            ) as mock_pipeline,
             patch("ductor_bot.__main__._re_exec_bot") as mock_exec,
             patch("ductor_bot.__main__._stop_bot"),
         ):
             _upgrade()
 
-        # First subprocess.run = pipx upgrade, second = version check
-        upgrade_args = mock_run.call_args_list[0][0][0]
-        assert "pipx" in upgrade_args
-        assert "upgrade" in upgrade_args
+        mock_pipeline.assert_called_once()
         mock_exec.assert_called_once()
 
     def test_upgrade_with_pip(self, tmp_path: Path) -> None:
@@ -360,23 +354,19 @@ class TestUpgradeCli:
         paths = _make_paths(tmp_path)
         paths.ductor_home.mkdir(parents=True)
 
-        upgrade_result = MagicMock(returncode=0, stdout="installed ductor-2.0.0", stderr="")
-        verify_result = MagicMock(returncode=0, stdout="9.9.9\n", stderr="")
-
         with (
             patch("ductor_bot.infra.install.detect_install_mode", return_value="pip"),
             patch("ductor_bot.__main__.resolve_paths", return_value=paths),
             patch(
-                "ductor_bot.__main__.subprocess.run",
-                side_effect=[upgrade_result, verify_result],
-            ) as mock_run,
+                "ductor_bot.infra.updater.perform_upgrade_pipeline",
+                new=AsyncMock(return_value=(True, "9.9.9", "installed ductor-2.0.0")),
+            ) as mock_pipeline,
             patch("ductor_bot.__main__._re_exec_bot") as mock_exec,
             patch("ductor_bot.__main__._stop_bot"),
         ):
             _upgrade()
 
-        upgrade_args = mock_run.call_args_list[0][0][0]
-        assert "pip" in " ".join(str(a) for a in upgrade_args)
+        mock_pipeline.assert_called_once()
         mock_exec.assert_called_once()
 
     def test_upgrade_version_unchanged_no_restart(self, tmp_path: Path) -> None:
@@ -386,15 +376,12 @@ class TestUpgradeCli:
         paths.ductor_home.mkdir(parents=True)
 
         current = get_current_version()
-        upgrade_result = MagicMock(returncode=0, stdout="already up to date", stderr="")
-        verify_result = MagicMock(returncode=0, stdout=f"{current}\n", stderr="")
-
         with (
             patch("ductor_bot.infra.install.detect_install_mode", return_value="pipx"),
             patch("ductor_bot.__main__.resolve_paths", return_value=paths),
             patch(
-                "ductor_bot.__main__.subprocess.run",
-                side_effect=[upgrade_result, verify_result],
+                "ductor_bot.infra.updater.perform_upgrade_pipeline",
+                new=AsyncMock(return_value=(False, current, "already up to date")),
             ),
             patch("ductor_bot.__main__._re_exec_bot") as mock_exec,
             patch("ductor_bot.__main__._stop_bot"),
@@ -410,15 +397,13 @@ class TestUpgradeCli:
         paths = _make_paths(tmp_path)
         paths.ductor_home.mkdir(parents=True)
 
-        mock_result = MagicMock()
-        mock_result.returncode = 1
-        mock_result.stdout = ""
-        mock_result.stderr = "error: package not found"
-
         with (
             patch("ductor_bot.infra.install.detect_install_mode", return_value="pip"),
             patch("ductor_bot.__main__.resolve_paths", return_value=paths),
-            patch("ductor_bot.__main__.subprocess.run", return_value=mock_result),
+            patch(
+                "ductor_bot.infra.updater.perform_upgrade_pipeline",
+                new=AsyncMock(return_value=(False, get_current_version(), "error: package not found")),
+            ),
             patch("ductor_bot.__main__._re_exec_bot") as mock_exec,
             patch("ductor_bot.__main__._stop_bot"),
         ):

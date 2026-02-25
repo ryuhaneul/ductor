@@ -48,3 +48,8 @@ Current use in orchestrator: log warning only.
 Violation raises `PathValidationError`.
 
 `is_path_safe()` wraps this as a non-throwing boolean check.
+
+Current call sites:
+
+- Telegram file send path (`bot/sender.py`)
+- API file download endpoint (`api/server.py`)

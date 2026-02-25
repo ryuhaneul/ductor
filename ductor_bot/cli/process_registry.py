@@ -76,6 +76,13 @@ class ProcessRegistry:
             return 0
         return await _kill_processes(entries)
 
+    async def kill_all_active(self) -> int:
+        """Kill active processes across all chats. Returns total count killed."""
+        total = 0
+        for chat_id in list(self._processes):
+            total += await self.kill_all(chat_id)
+        return total
+
     def was_aborted(self, chat_id: int) -> bool:
         """Check whether *chat_id* has been aborted since last clear."""
         return chat_id in self._aborted
@@ -133,6 +140,7 @@ def _send_sigterm(entries: list[TrackedProcess]) -> int:
         if tracked.process.returncode is not None:
             continue
         try:
+            _close_stdin(tracked.process)
             if sys.platform == "win32" and tracked.process.pid is not None:
                 _kill_process_tree(tracked.process.pid)
             else:
@@ -150,6 +158,7 @@ def _send_sigkill(entries: list[TrackedProcess]) -> None:
         if tracked.process.returncode is not None:
             continue
         try:
+            _close_stdin(tracked.process)
             if sys.platform == "win32" and tracked.process.pid is not None:
                 _kill_process_tree(tracked.process.pid)
             else:
@@ -181,3 +190,12 @@ async def _kill_processes(entries: list[TrackedProcess]) -> int:
     await _reap(entries)
     logger.info("Killed %d CLI process(es)", killed)
     return killed
+
+
+def _close_stdin(process: asyncio.subprocess.Process) -> None:
+    """Best-effort stdin close so readers can unwind promptly."""
+    stdin = getattr(process, "stdin", None)
+    if stdin is None:
+        return
+    with contextlib.suppress(OSError, RuntimeError, ValueError):
+        stdin.close()

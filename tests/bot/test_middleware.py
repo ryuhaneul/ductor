@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from aiogram.types import Message
@@ -452,6 +452,67 @@ class TestQueueManagement:
 
         assert handler_calls == ["slow"]
         abort_handler.assert_called_once()
+
+    async def test_stop_kills_active_cli_process_on_windows(self) -> None:
+        """End-to-end style: /stop kills the active CLI process on Windows."""
+        from ductor_bot.bot.middleware import SequentialMiddleware
+        from ductor_bot.cli.process_registry import ProcessRegistry
+
+        mw = SequentialMiddleware()
+        registry = ProcessRegistry()
+
+        process = MagicMock(spec=asyncio.subprocess.Process)
+        process.pid = 4242
+        process.returncode = None
+        process.wait = AsyncMock(return_value=0)
+        process.terminate = MagicMock()
+        process.kill = MagicMock()
+        process.stdin = MagicMock()
+        process.stdin.close = MagicMock()
+
+        acquired = asyncio.Event()
+        release = asyncio.Event()
+
+        async def slow_handler(_event: object, _data: dict[str, object]) -> None:
+            registry.register(chat_id=1, process=process, label="main")
+            acquired.set()
+            await release.wait()
+
+        async def abort_handler(_chat_id: int, _msg: Message) -> bool:
+            await registry.kill_all(1)
+            return True
+
+        mw.set_abort_handler(abort_handler)
+
+        first_msg = _make_message(chat_id=1, text="long running")
+        first_msg.message_id = 1
+        slow_task = asyncio.create_task(mw(slow_handler, first_msg, {}))
+        await acquired.wait()
+        assert registry.has_active(1)
+
+        stop_msg = _make_message(chat_id=1, text="/stop")
+        stop_msg.message_id = 2
+
+        def _mark_terminated(_pid: int) -> None:
+            process.returncode = 0
+
+        with (
+            patch("ductor_bot.cli.process_registry.sys.platform", "win32"),
+            patch(
+                "ductor_bot.cli.process_registry._kill_process_tree",
+                side_effect=_mark_terminated,
+            ) as mock_kill_tree,
+            patch("ductor_bot.cli.process_registry.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            await mw(AsyncMock(), stop_msg, {})
+
+        mock_kill_tree.assert_called_once_with(4242)
+        process.stdin.close.assert_called_once()
+        assert registry.was_aborted(1) is True
+        assert registry.has_active(1) is False
+
+        release.set()
+        await slow_task
 
 
 class TestForumTopicIndicator:

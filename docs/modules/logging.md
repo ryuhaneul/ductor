@@ -24,6 +24,7 @@ Operation codes currently used:
 - `cron`: cron execution (`CronObserver._execute_job`)
 - `hb`: heartbeat run (`HeartbeatObserver._run_for_chat`)
 - `wh`: webhook request / webhook wake dispatch
+- `api`: direct API WebSocket session/message handling (`ApiServer._session_loop`, `_route_text_message`)
 
 `set_log_context()` updates the context for the current async task; child tasks inherit current context.
 

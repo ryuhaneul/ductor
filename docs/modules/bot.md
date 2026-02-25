@@ -12,10 +12,10 @@ Telegram interface layer (`aiogram`): handlers, middleware, streaming delivery, 
 - `welcome.py`: `/start` text + quick action callbacks (`w:*`)
 - `file_browser.py`: interactive `~/.ductor/` browser (`sf:`/`sf!`)
 - `streaming.py`, `edit_streaming.py`: stream editors
-- `sender.py`: rich text/file sending (`send_rich`, `<file:...>` handling)
+- `sender.py`: rich text/file sending (`send_rich`, `<file:...>` handling, MIME-based photo/document choice)
 - `formatting.py`: markdown-to-Telegram HTML conversion/chunking
 - `buttons.py`: `[button:...]` parsing
-- `media.py`: media download/index/prompt conversion
+- `media.py`: media download/index/prompt conversion (delegates shared helpers in `ductor_bot/files/`)
 - `abort.py`, `dedup.py`, `typing.py`, `topic.py`: shared runtime helpers
 
 ## Command ownership
@@ -110,6 +110,11 @@ Sessions remain keyed by `chat_id` (no per-topic session split).
 - `all` -> unrestricted
 - `home` -> only under home directory
 - `workspace` -> only under `~/.ductor/workspace`
+
+Implementation note:
+
+- allowed roots are resolved through `files.allowed_roots.resolve_allowed_roots(...)` (shared with API server).
+- MIME detection for send path uses `files.tags.guess_mime(...)` (magic bytes + extension fallback), and SVG is sent as document.
 
 ## Observer bridges in bot layer
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from aiogram.exceptions import TelegramBadRequest
 
@@ -159,6 +159,120 @@ class TestSendFile:
         await send_file(bot, chat_id=1, path=doc)
         bot.send_document.assert_called_once()
 
+    async def test_unsupported_image_sent_as_document(self, tmp_path: Path) -> None:
+        from ductor_bot.bot.sender import send_file
+
+        img = tmp_path / "photo.heic"
+        img.write_bytes(b"not-relevant")
+
+        bot = MagicMock()
+        bot.send_photo = AsyncMock()
+        bot.send_document = AsyncMock()
+        with patch("ductor_bot.bot.sender.guess_mime", return_value="image/heic"):
+            await send_file(bot, chat_id=1, path=img)
+
+        bot.send_photo.assert_not_called()
+        bot.send_document.assert_called_once()
+
+    async def test_supported_video_sent_as_video(self, tmp_path: Path) -> None:
+        from ductor_bot.bot.sender import send_file
+
+        video = tmp_path / "clip.mp4"
+        video.write_bytes(b"not-relevant")
+
+        bot = MagicMock()
+        bot.send_video = AsyncMock()
+        with patch("ductor_bot.bot.sender.guess_mime", return_value="video/mp4"):
+            await send_file(bot, chat_id=1, path=video)
+
+        bot.send_video.assert_called_once()
+
+    async def test_unsupported_video_sent_as_document(self, tmp_path: Path) -> None:
+        from ductor_bot.bot.sender import send_file
+
+        video = tmp_path / "clip.webm"
+        video.write_bytes(b"not-relevant")
+
+        bot = MagicMock()
+        bot.send_video = AsyncMock()
+        bot.send_document = AsyncMock()
+        with patch("ductor_bot.bot.sender.guess_mime", return_value="video/webm"):
+            await send_file(bot, chat_id=1, path=video)
+
+        bot.send_video.assert_not_called()
+        bot.send_document.assert_called_once()
+
+    async def test_supported_audio_sent_as_audio(self, tmp_path: Path) -> None:
+        from ductor_bot.bot.sender import send_file
+
+        audio = tmp_path / "sound.mp3"
+        audio.write_bytes(b"not-relevant")
+
+        bot = MagicMock()
+        bot.send_audio = AsyncMock()
+        with patch("ductor_bot.bot.sender.guess_mime", return_value="audio/mpeg"):
+            await send_file(bot, chat_id=1, path=audio)
+
+        bot.send_audio.assert_called_once()
+
+    async def test_unsupported_audio_sent_as_document(self, tmp_path: Path) -> None:
+        from ductor_bot.bot.sender import send_file
+
+        audio = tmp_path / "sound.wav"
+        audio.write_bytes(b"not-relevant")
+
+        bot = MagicMock()
+        bot.send_audio = AsyncMock()
+        bot.send_document = AsyncMock()
+        with patch("ductor_bot.bot.sender.guess_mime", return_value="audio/wav"):
+            await send_file(bot, chat_id=1, path=audio)
+
+        bot.send_audio.assert_not_called()
+        bot.send_document.assert_called_once()
+
+    async def test_photo_rejected_retries_as_document(self, tmp_path: Path) -> None:
+        from ductor_bot.bot.sender import send_file
+
+        img = tmp_path / "photo.jpg"
+        img.write_bytes(b"\xff\xd8\xff\xe0")
+
+        bot = MagicMock()
+        bot.send_photo = AsyncMock(side_effect=TelegramBadRequest(MagicMock(), "bad photo"))
+        bot.send_document = AsyncMock()
+        await send_file(bot, chat_id=1, path=img)
+        bot.send_photo.assert_called_once()
+        bot.send_document.assert_called_once()
+
+    async def test_video_rejected_retries_as_document(self, tmp_path: Path) -> None:
+        from ductor_bot.bot.sender import send_file
+
+        video = tmp_path / "clip.mp4"
+        video.write_bytes(b"not-relevant")
+
+        bot = MagicMock()
+        bot.send_video = AsyncMock(side_effect=TelegramBadRequest(MagicMock(), "bad video"))
+        bot.send_document = AsyncMock()
+        with patch("ductor_bot.bot.sender.guess_mime", return_value="video/mp4"):
+            await send_file(bot, chat_id=1, path=video)
+
+        bot.send_video.assert_called_once()
+        bot.send_document.assert_called_once()
+
+    async def test_audio_rejected_retries_as_document(self, tmp_path: Path) -> None:
+        from ductor_bot.bot.sender import send_file
+
+        audio = tmp_path / "sound.mp3"
+        audio.write_bytes(b"not-relevant")
+
+        bot = MagicMock()
+        bot.send_audio = AsyncMock(side_effect=TelegramBadRequest(MagicMock(), "bad audio"))
+        bot.send_document = AsyncMock()
+        with patch("ductor_bot.bot.sender.guess_mime", return_value="audio/mpeg"):
+            await send_file(bot, chat_id=1, path=audio)
+
+        bot.send_audio.assert_called_once()
+        bot.send_document.assert_called_once()
+
     async def test_missing_file_sends_error(self, tmp_path: Path) -> None:
         from ductor_bot.bot.sender import send_file
 
@@ -245,6 +359,38 @@ class TestSendFilesFromText:
 
         await send_files_from_text(bot, chat_id=1, text=f"<file:{img}>")
 
+    async def test_windows_slash_drive_tag_normalized_before_send(self) -> None:
+        from ductor_bot.bot.sender import send_files_from_text
+
+        bot = MagicMock()
+
+        with (
+            patch("ductor_bot.files.tags._is_windows", return_value=True),
+            patch("ductor_bot.bot.sender.send_file", new_callable=AsyncMock) as mock_send_file,
+        ):
+            await send_files_from_text(
+                bot, chat_id=1, text="<file:/C/Users/alice/output_to_user/out.zip>"
+            )
+
+        sent_path = mock_send_file.call_args.args[2]
+        assert str(sent_path).replace("\\", "/") == "C:/Users/alice/output_to_user/out.zip"
+
+
+class TestWindowsTagNormalizationInSendRich:
+    async def test_send_rich_normalizes_windows_file_tag(self) -> None:
+        from ductor_bot.bot.sender import send_rich
+
+        bot = MagicMock()
+
+        with (
+            patch("ductor_bot.files.tags._is_windows", return_value=True),
+            patch("ductor_bot.bot.sender.send_file", new_callable=AsyncMock) as mock_send_file,
+        ):
+            await send_rich(bot, chat_id=1, text="<file:/C/Users/alice/result.apk>")
+
+        sent_path = mock_send_file.call_args.args[2]
+        assert str(sent_path).replace("\\", "/") == "C:/Users/alice/result.apk"
+
 
 class TestForumTopicSupport:
     """Test message_thread_id propagation through sender functions."""
@@ -298,6 +444,32 @@ class TestForumTopicSupport:
         bot.send_photo = AsyncMock()
         await send_file(bot, chat_id=1, path=img, thread_id=55)
         assert bot.send_photo.call_args.kwargs["message_thread_id"] == 55
+
+    async def test_send_file_passes_thread_id_to_video(self, tmp_path: Path) -> None:
+        from ductor_bot.bot.sender import send_file
+
+        video = tmp_path / "clip.mp4"
+        video.write_bytes(b"not-relevant")
+
+        bot = MagicMock()
+        bot.send_video = AsyncMock()
+        with patch("ductor_bot.bot.sender.guess_mime", return_value="video/mp4"):
+            await send_file(bot, chat_id=1, path=video, thread_id=55)
+
+        assert bot.send_video.call_args.kwargs["message_thread_id"] == 55
+
+    async def test_send_file_passes_thread_id_to_audio(self, tmp_path: Path) -> None:
+        from ductor_bot.bot.sender import send_file
+
+        audio = tmp_path / "sound.mp3"
+        audio.write_bytes(b"not-relevant")
+
+        bot = MagicMock()
+        bot.send_audio = AsyncMock()
+        with patch("ductor_bot.bot.sender.guess_mime", return_value="audio/mpeg"):
+            await send_file(bot, chat_id=1, path=audio, thread_id=55)
+
+        assert bot.send_audio.call_args.kwargs["message_thread_id"] == 55
 
     async def test_send_file_error_message_passes_thread_id(self) -> None:
         from ductor_bot.bot.sender import send_file

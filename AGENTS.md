@@ -4,7 +4,7 @@ This file gives coding agents a current map of the repository.
 
 ## Project Overview
 
-ductor is a Telegram bot that routes chat input to official provider CLIs (`claude`, `codex`, `gemini`), streams responses back to Telegram, persists per-chat state, and runs cron/webhook/heartbeat automation in-process.
+ductor is a Telegram bot that routes chat input to official provider CLIs (`claude`, `codex`, `gemini`), streams responses back to Telegram, persists per-chat state, and runs cron/webhook/heartbeat automation in-process. It also has an optional direct WebSocket API server (`api.enabled=true`) with authenticated file upload/download endpoints.
 
 Stack:
 
@@ -46,6 +46,14 @@ Telegram Update
   -> CLIService
   -> provider subprocess (claude/codex/gemini)
   -> Telegram output (stream edit or one-shot)
+
+Direct API Message (optional)
+  -> ApiServer (/ws)
+  -> per-chat API lock
+  -> Orchestrator.handle_message_streaming
+  -> CLIService
+  -> provider subprocess
+  -> WebSocket stream events + final result
 ```
 
 ## Module Map
@@ -53,6 +61,8 @@ Telegram Update
 | Module | Purpose |
 |---|---|
 | `bot/` | Telegram handlers, callback routing, streaming delivery, queue UX |
+| `api/` | Direct aiohttp WebSocket API (`/ws`) plus `/health`, `/files`, `/upload` endpoints |
+| `files/` | Shared file helpers (path tags, MIME detection, storage naming, media prompt builder) |
 | `orchestrator/` | command registry, directives/hooks, flow routing, observer wiring |
 | `cli/` | provider wrappers, stream parsing, auth checks, process registry, model caches |
 | `session/` | chat sessions with provider-isolated buckets |
@@ -76,6 +86,7 @@ Telegram Update
   - Docker mode: managed copies (`.ductor_managed` marker)
 - Streaming fallback is automatic; `/stop` abort checks are enforced during event loop processing.
 - Session state is provider-isolated; `/new` resets only the active provider bucket.
+- File access policy (`file_access`) is shared by Telegram file sends and API file downloads (`GET /files`).
 
 ## Background Systems
 
@@ -90,6 +101,10 @@ All run as in-process asyncio tasks:
 - rule sync watcher
 - skill sync watcher
 - update observer (upgradeable installs)
+
+Optional network service (not a periodic observer task):
+
+- `ApiServer`
 
 ## Service Backends
 
@@ -123,6 +138,7 @@ All run as in-process asyncio tasks:
 - `cron_jobs.json`
 - `webhooks.json`
 - `logs/agent.log`
+- `workspace/api_files/` (API uploads)
 
 ## Conventions
 

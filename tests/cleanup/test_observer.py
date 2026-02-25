@@ -33,17 +33,33 @@ def test_delete_old_files_removes_expired(tmp_path: Path) -> None:
     assert recent_file.exists()
 
 
-def test_delete_old_files_skips_subdirectories(tmp_path: Path) -> None:
-    subdir = tmp_path / "subdir"
-    subdir.mkdir()
-    old_mtime = time.time() - 40 * 86400
+def test_delete_old_files_recurses_into_subdirectories(tmp_path: Path) -> None:
     import os
 
-    os.utime(subdir, (old_mtime, old_mtime))
+    subdir = tmp_path / "2025-01-01"
+    subdir.mkdir()
+    old_file = subdir / "old.txt"
+    old_file.write_text("old")
+    old_mtime = time.time() - 40 * 86400
+    os.utime(old_file, (old_mtime, old_mtime))
+
+    deleted = _delete_old_files(tmp_path, max_age_days=30)
+    assert deleted == 1
+    assert not old_file.exists()
+    # Empty subdir should be pruned
+    assert not subdir.exists()
+
+
+def test_delete_old_files_keeps_subdir_with_recent_files(tmp_path: Path) -> None:
+    subdir = tmp_path / "2025-06-01"
+    subdir.mkdir()
+    recent = subdir / "recent.txt"
+    recent.write_text("new")
 
     deleted = _delete_old_files(tmp_path, max_age_days=30)
     assert deleted == 0
     assert subdir.is_dir()
+    assert recent.exists()
 
 
 def test_delete_old_files_nonexistent_dir(tmp_path: Path) -> None:

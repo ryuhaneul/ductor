@@ -170,7 +170,7 @@ class ClaudeCodeCLI(BaseCLI):
         if process.stdout is None or process.stderr is None:
             msg = "Subprocess created without stdout/stderr pipes"
             raise RuntimeError(msg)
-        _win_feed_stdin(process, prompt)
+        await _win_feed_stdin(process, prompt)
         logger.info("CLI subprocess starting pid=%s", process.pid)
 
         reg = self._config.process_registry

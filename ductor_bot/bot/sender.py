@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import html as html_mod
 import logging
-import mimetypes
 import re
 from collections.abc import Sequence
 from pathlib import Path
@@ -16,6 +15,7 @@ from aiogram.types import FSInputFile, InlineKeyboardMarkup
 
 from ductor_bot.bot.buttons import extract_buttons
 from ductor_bot.bot.formatting import markdown_to_telegram_html, split_html_message
+from ductor_bot.files.tags import FILE_PATH_RE, extract_file_paths, guess_mime, path_from_file_tag
 from ductor_bot.security.paths import is_path_safe
 
 if TYPE_CHECKING:
@@ -24,13 +24,65 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_IMAGE_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"})
-_FILE_PATH_RE = re.compile(r"<file:([^>]+)>")
+_PHOTO_SUFFIXES = frozenset({".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"})
+_VIDEO_SUFFIXES = frozenset({".mp4"})
+_AUDIO_SUFFIXES = frozenset({".mp3", ".m4a"})
 
 
-def extract_file_paths(text: str) -> list[str]:
-    """Return all <file:/path> references from *text*."""
-    return _FILE_PATH_RE.findall(text)
+def _select_telegram_upload_mode(path: Path, mime: str) -> str:
+    """Return best Telegram upload mode for this file.
+
+    Non-matching or unsupported formats are sent as document.
+    """
+    suffix = path.suffix.lower()
+    if mime.startswith("image/") and suffix in _PHOTO_SUFFIXES:
+        return "photo"
+    if mime.startswith("video/") and suffix in _VIDEO_SUFFIXES:
+        return "video"
+    if mime.startswith("audio/") and suffix in _AUDIO_SUFFIXES:
+        return "audio"
+    return "document"
+
+
+async def _send_document(bot: Bot, chat_id: int, path: Path, thread_id: int | None) -> None:
+    await bot.send_document(
+        chat_id=chat_id,
+        document=FSInputFile(path),
+        message_thread_id=thread_id,
+    )
+
+
+async def _send_by_mode(
+    bot: Bot,
+    chat_id: int,
+    path: Path,
+    *,
+    upload_mode: str,
+    thread_id: int | None,
+) -> None:
+    if upload_mode == "document":
+        await _send_document(bot, chat_id, path, thread_id)
+        return
+
+    input_file = FSInputFile(path)
+
+    try:
+        if upload_mode == "photo":
+            await bot.send_photo(chat_id=chat_id, photo=input_file, message_thread_id=thread_id)
+        elif upload_mode == "video":
+            await bot.send_video(chat_id=chat_id, video=input_file, message_thread_id=thread_id)
+        elif upload_mode == "audio":
+            await bot.send_audio(chat_id=chat_id, audio=input_file, message_thread_id=thread_id)
+        else:
+            await _send_document(bot, chat_id, path, thread_id)
+            return
+    except TelegramBadRequest:
+        logger.info(
+            "%s upload rejected, retrying as document: %s",
+            upload_mode.capitalize(),
+            path.name,
+        )
+        await _send_document(bot, chat_id, path, thread_id)
 
 
 async def send_files_from_text(
@@ -47,7 +99,13 @@ async def send_files_from_text(
     separate handling.
     """
     for fp in extract_file_paths(text):
-        await send_file(bot, chat_id, Path(fp), allowed_roots=allowed_roots, thread_id=thread_id)
+        await send_file(
+            bot,
+            chat_id,
+            path_from_file_tag(fp),
+            allowed_roots=allowed_roots,
+            thread_id=thread_id,
+        )
 
 
 async def _send_text_chunks(
@@ -110,8 +168,8 @@ async def send_rich(  # noqa: PLR0913
     When *reply_markup* is provided it is used directly; otherwise buttons
     are extracted from ``[button:...]`` markers in the text.
     """
-    file_paths = _FILE_PATH_RE.findall(text)
-    clean_text = _FILE_PATH_RE.sub("", text).strip()
+    file_paths = FILE_PATH_RE.findall(text)
+    clean_text = FILE_PATH_RE.sub("", text).strip()
     logger.debug("Sending rich text chars=%d files=%d", len(clean_text), len(file_paths))
 
     button_markup = reply_markup if reply_markup is not None else extract_buttons(clean_text)[1]
@@ -135,7 +193,13 @@ async def send_rich(  # noqa: PLR0913
             logger.warning("Failed to attach button keyboard in send_rich")
 
     for fp in file_paths:
-        await send_file(bot, chat_id, Path(fp), allowed_roots=allowed_roots, thread_id=thread_id)
+        await send_file(
+            bot,
+            chat_id,
+            path_from_file_tag(fp),
+            allowed_roots=allowed_roots,
+            thread_id=thread_id,
+        )
 
 
 async def send_file(
@@ -146,7 +210,7 @@ async def send_file(
     allowed_roots: Sequence[Path] | None = None,
     thread_id: int | None = None,
 ) -> None:
-    """Send a local file as photo (images) or document (everything else)."""
+    """Send a local file with Telegram media/document routing."""
     if allowed_roots is not None and not is_path_safe(path, allowed_roots):
         logger.warning("File path blocked (outside allowed roots): %s", path)
         await bot.send_message(
@@ -173,25 +237,29 @@ async def send_file(
         return
 
     try:
-        input_file = FSInputFile(path)
-        ext = path.suffix.lower()
-        mime = mimetypes.guess_type(str(path))[0] or ""
-
-        is_raster_image = ext in _IMAGE_EXTENSIONS or (
-            mime.startswith("image/") and ext not in {".svg", ".svgz"}
+        mime = guess_mime(path)
+        upload_mode = _select_telegram_upload_mode(path, mime)
+        await _send_by_mode(
+            bot,
+            chat_id,
+            path,
+            upload_mode=upload_mode,
+            thread_id=thread_id,
         )
-        if is_raster_image:
-            await bot.send_photo(chat_id=chat_id, photo=input_file, message_thread_id=thread_id)
-        else:
-            await bot.send_document(
-                chat_id=chat_id, document=input_file, message_thread_id=thread_id
-            )
 
-        logger.info("Sent file: %s (%s)", path.name, mime or ext)
+        logger.info("Sent file: %s (%s)", path.name, mime)
     except TelegramNetworkError:
         logger.debug("Network error sending file (likely shutdown), skipping: %s", path)
-    except (TelegramBadRequest, OSError):
+    except OSError:
         logger.exception("Failed to send file: %s", path)
+        await bot.send_message(
+            chat_id=chat_id,
+            text=f"[Failed to send: {path.name}]",
+            parse_mode=None,
+            message_thread_id=thread_id,
+        )
+    except TelegramBadRequest:
+        logger.exception("Telegram rejected file upload: %s", path)
         await bot.send_message(
             chat_id=chat_id,
             text=f"[Failed to send: {path.name}]",

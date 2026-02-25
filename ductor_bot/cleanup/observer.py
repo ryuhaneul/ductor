@@ -24,15 +24,16 @@ _CHECK_INTERVAL = 3600  # Re-check every hour whether it's time to run.
 def _delete_old_files(directory: Path, max_age_days: int) -> int:
     """Delete files older than *max_age_days* from *directory*.
 
-    Returns the number of deleted files.  Non-recursive on purpose:
-    only top-level files are cleaned, subdirectories are left untouched.
+    Walks the directory tree recursively, removes old files, then prunes
+    empty subdirectories so date-based folders (``YYYY-MM-DD/``) don't
+    accumulate indefinitely.
     """
     if not directory.is_dir():
         return 0
 
     cutoff = time.time() - max_age_days * 86400
     deleted = 0
-    for entry in directory.iterdir():
+    for entry in directory.rglob("*"):
         if not entry.is_file():
             continue
         try:
@@ -41,11 +42,17 @@ def _delete_old_files(directory: Path, max_age_days: int) -> int:
                 deleted += 1
         except OSError:
             logger.warning("Failed to delete %s", entry)
+
+    # Prune empty subdirectories (bottom-up so nested empties are removed)
+    for sub in sorted(directory.rglob("*"), reverse=True):
+        if sub.is_dir():
+            with contextlib.suppress(OSError):
+                sub.rmdir()  # only succeeds if empty
     return deleted
 
 
 class CleanupObserver:
-    """Runs daily file cleanup for telegram_files and output_to_user.
+    """Runs daily file cleanup for telegram_files, output_to_user, and api_files.
 
     Follows the same lifecycle pattern as HeartbeatObserver:
     ``start()`` / ``stop()`` with an asyncio background task.
@@ -71,9 +78,10 @@ class CleanupObserver:
         self._task = asyncio.create_task(self._loop())
         self._task.add_done_callback(_log_task_crash)
         logger.info(
-            "File cleanup started (telegram_files: %dd, output_to_user: %dd, check_hour: %d:00)",
+            "File cleanup started (telegram: %dd, output: %dd, api: %dd, hour: %d:00)",
             self._cfg.telegram_files_days,
             self._cfg.output_to_user_days,
+            self._cfg.api_files_days,
             self._cfg.check_hour,
         )
 
@@ -122,35 +130,27 @@ class CleanupObserver:
 
     async def _execute(self) -> None:
         """Perform the actual cleanup in a thread to avoid blocking the loop."""
-        telegram_days = self._cfg.telegram_files_days
-        output_days = self._cfg.output_to_user_days
-        telegram_dir = self._paths.telegram_files_dir
-        output_dir = self._paths.output_to_user_dir
+        targets = [
+            (self._paths.telegram_files_dir, self._cfg.telegram_files_days),
+            (self._paths.output_to_user_dir, self._cfg.output_to_user_days),
+            (self._paths.api_files_dir, self._cfg.api_files_days),
+        ]
+        results = await asyncio.to_thread(_run_cleanup, targets)
 
-        t_deleted, o_deleted = await asyncio.to_thread(
-            _run_cleanup, telegram_dir, telegram_days, output_dir, output_days
-        )
-
-        if t_deleted or o_deleted:
+        if any(results):
             logger.info(
-                "Cleanup complete: %d file(s) from telegram_files, %d from output_to_user",
-                t_deleted,
-                o_deleted,
+                "Cleanup complete: telegram=%d, output=%d, api=%d",
+                results[0],
+                results[1],
+                results[2],
             )
         else:
             logger.debug("Cleanup: nothing to delete")
 
 
-def _run_cleanup(
-    telegram_dir: Path,
-    telegram_days: int,
-    output_dir: Path,
-    output_days: int,
-) -> tuple[int, int]:
+def _run_cleanup(targets: list[tuple[Path, int]]) -> list[int]:
     """Synchronous cleanup runner (called via ``asyncio.to_thread``)."""
-    t = _delete_old_files(telegram_dir, telegram_days)
-    o = _delete_old_files(output_dir, output_days)
-    return t, o
+    return [_delete_old_files(d, days) for d, days in targets]
 
 
 def _log_task_crash(task: asyncio.Task[None]) -> None:

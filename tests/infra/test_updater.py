@@ -11,6 +11,7 @@ from ductor_bot.infra.updater import (
     UpdateObserver,
     consume_upgrade_sentinel,
     perform_upgrade,
+    perform_upgrade_pipeline,
     write_upgrade_sentinel,
 )
 from ductor_bot.infra.version import VersionInfo
@@ -154,6 +155,75 @@ class TestPerformUpgrade:
 
         assert success is False
         assert "git pull" in output.lower()
+
+
+class TestPerformUpgradePipeline:
+    """Test upgrade pipeline behavior (verification + retry)."""
+
+    async def test_changes_on_first_attempt(self) -> None:
+        with (
+            patch(
+                "ductor_bot.infra.updater._perform_upgrade_impl",
+                new=AsyncMock(return_value=(True, "first-pass")),
+            ) as mock_upgrade,
+            patch(
+                "ductor_bot.infra.updater._wait_for_version_change",
+                new=AsyncMock(return_value="2.0.0"),
+            ),
+        ):
+            changed, version, output = await perform_upgrade_pipeline(current_version="1.0.0")
+
+        assert changed is True
+        assert version == "2.0.0"
+        assert "first-pass" in output
+        mock_upgrade.assert_called_once_with(target_version=None, force_reinstall=False)
+
+    async def test_retries_with_target_when_unchanged(self) -> None:
+        with (
+            patch(
+                "ductor_bot.infra.updater._perform_upgrade_impl",
+                new=AsyncMock(side_effect=[(True, "first-pass"), (True, "retry-pass")]),
+            ) as mock_upgrade,
+            patch(
+                "ductor_bot.infra.updater._wait_for_version_change",
+                new=AsyncMock(side_effect=["1.0.0", "2.0.0"]),
+            ),
+        ):
+            changed, version, output = await perform_upgrade_pipeline(
+                current_version="1.0.0",
+                target_version="2.0.0",
+            )
+
+        assert changed is True
+        assert version == "2.0.0"
+        assert "first-pass" in output
+        assert "retry-pass" in output
+        assert mock_upgrade.call_count == 2
+        assert mock_upgrade.call_args_list[1].kwargs == {
+            "target_version": "2.0.0",
+            "force_reinstall": True,
+        }
+
+    async def test_returns_unchanged_when_no_retry_target(self) -> None:
+        with (
+            patch(
+                "ductor_bot.infra.updater._perform_upgrade_impl",
+                new=AsyncMock(return_value=(True, "first-pass")),
+            ),
+            patch(
+                "ductor_bot.infra.updater._wait_for_version_change",
+                new=AsyncMock(return_value="1.0.0"),
+            ),
+            patch(
+                "ductor_bot.infra.updater._resolve_retry_target",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            changed, version, output = await perform_upgrade_pipeline(current_version="1.0.0")
+
+        assert changed is False
+        assert version == "1.0.0"
+        assert "first-pass" in output
 
 
 # ---------------------------------------------------------------------------

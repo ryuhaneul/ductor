@@ -23,6 +23,7 @@ Important runtime paths:
 - `webhooks_path`: `~/.ductor/webhooks.json`
 - `logs_dir`: `~/.ductor/logs`
 - `cron_tasks_dir`: `~/.ductor/workspace/cron_tasks`
+- `api_files_dir`: `~/.ductor/workspace/api_files`
 - `skills_dir`: `~/.ductor/workspace/skills`
 - `bundled_skills_dir`: package `_home_defaults/workspace/skills`
 
@@ -39,6 +40,10 @@ Important runtime paths:
 9. `sync_skills(paths)`
 
 Idempotent by design (called from multiple startup paths).
+
+Directory creation note:
+
+- `workspace/api_files/` is not in `_REQUIRED_DIRS`; it is created lazily on first API upload via `prepare_destination(...)`.
 
 ## Zone copy rules (`_walk_and_copy`)
 

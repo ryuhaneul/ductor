@@ -337,6 +337,20 @@ async def test_shutdown_cancels_rule_sync_task(orch: Orchestrator) -> None:
     orch._cron_observer.stop.assert_awaited_once()
 
 
+async def test_shutdown_kills_active_processes(orch: Orchestrator) -> None:
+    kill_all_active = AsyncMock(return_value=1)
+    object.__setattr__(orch._process_registry, "kill_all_active", kill_all_active)
+
+    orch._heartbeat = MagicMock()
+    orch._heartbeat.stop = AsyncMock()
+    orch._cron_observer = MagicMock()
+    orch._cron_observer.stop = AsyncMock()
+
+    await orch.shutdown()
+
+    kill_all_active.assert_awaited_once()
+
+
 async def test_shutdown_skips_done_task(orch: Orchestrator) -> None:
     mock_task = MagicMock(spec=asyncio.Task)
     mock_task.done.return_value = True

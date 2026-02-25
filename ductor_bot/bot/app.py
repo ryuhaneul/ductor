@@ -50,12 +50,12 @@ from ductor_bot.bot.welcome import (
 )
 from ductor_bot.commands import BOT_COMMANDS as _COMMAND_DEFS
 from ductor_bot.config import AgentConfig
+from ductor_bot.files.allowed_roots import resolve_allowed_roots
 from ductor_bot.infra.restart import EXIT_RESTART, consume_restart_marker, consume_restart_sentinel
 from ductor_bot.infra.updater import (
     UpdateObserver,
     consume_upgrade_sentinel,
-    get_installed_version,
-    perform_upgrade,
+    perform_upgrade_pipeline,
     write_upgrade_sentinel,
 )
 from ductor_bot.infra.version import VersionInfo, get_current_version
@@ -132,6 +132,7 @@ class TelegramBot:
         self._exit_code: int = 0
         self._restart_watcher: asyncio.Task[None] | None = None
         self._update_observer: UpdateObserver | None = None
+        self._upgrade_lock = asyncio.Lock()
 
         allowed = set(config.allowed_user_ids)
         self._sequential = SequentialMiddleware()
@@ -154,21 +155,8 @@ class TelegramBot:
         return self._orchestrator
 
     def _file_roots(self, paths: DuctorPaths) -> list[Path] | None:
-        """Allowed root directories for ``<file:...>`` tag sends.
-
-        Controlled by ``config.file_access``:
-        - ``"all"``: no restriction (returns ``None``).
-        - ``"home"``: user home directory.
-        - ``"workspace"``: only ``~/.ductor/workspace``.
-        """
-        mode = self._config.file_access
-        if mode == "all":
-            return None
-        if mode == "home":
-            return [Path.home()]
-        if mode == "workspace":
-            return [paths.workspace]
-        return None
+        """Allowed root directories for ``<file:...>`` tag sends."""
+        return resolve_allowed_roots(self._config.file_access, paths.workspace)
 
     async def _on_startup(self) -> None:
         from ductor_bot.orchestrator.core import Orchestrator
@@ -795,61 +783,67 @@ class TelegramBot:
 
         # upg:yes:<version>
         target_version = data.split(":", 2)[2] if data.count(":") >= 2 else "latest"
-        current = get_current_version()
+        current_version = get_current_version()
 
-        await self._bot.send_message(
-            chat_id,
-            f"Upgrading to {target_version}...",
-            parse_mode=None,
-            message_thread_id=thread_id,
-        )
-
-        success, output = await perform_upgrade()
-        if not success:
-            logger.error("Upgrade failed: %s", output[-500:])
+        if self._upgrade_lock.locked():
             await self._bot.send_message(
                 chat_id,
-                f"Upgrade failed:\n{output[-300:]}",
+                "Upgrade already in progress. Please wait.",
                 parse_mode=None,
                 message_thread_id=thread_id,
             )
             return
 
-        # Verify the upgrade actually installed the new version
-        actual_version = await get_installed_version()
-        if actual_version == current:
-            logger.warning(
-                "Upgrade reported success but version unchanged: %s (target=%s)",
-                actual_version,
-                target_version,
-            )
+        async with self._upgrade_lock:
             await self._bot.send_message(
                 chat_id,
-                f"Version unchanged after upgrade ({actual_version}). "
-                "The new release may not have propagated to PyPI yet. "
-                "Try again in a few minutes.",
+                f"Upgrading to {target_version}...",
                 parse_mode=None,
                 message_thread_id=thread_id,
             )
-            return
 
-        # Write sentinel for post-restart message (use actual installed version)
-        await asyncio.to_thread(
-            write_upgrade_sentinel,
-            self._orch.paths.ductor_home,
-            chat_id=chat_id,
-            old_version=current,
-            new_version=actual_version,
-        )
+            changed, installed_version, output = await perform_upgrade_pipeline(
+                current_version=current_version,
+                target_version=target_version,
+            )
 
-        await self._bot.send_message(
-            chat_id,
-            "Bot is restarting...",
-            parse_mode=None,
-            message_thread_id=thread_id,
-        )
-        self._exit_code = EXIT_RESTART
-        await self._dp.stop_polling()
+            if not changed:
+                logger.warning(
+                    "Upgrade did not change version after retry: current=%s installed=%s target=%s",
+                    current_version,
+                    installed_version,
+                    target_version,
+                )
+                tail = output[-300:] if output else ""
+                details = f"\n\n{tail}" if tail else ""
+                await self._bot.send_message(
+                    chat_id,
+                    (
+                        f"Upgrade could not verify a new installed version "
+                        f"(still {installed_version}) after automatic retry.{details}"
+                    ),
+                    parse_mode=None,
+                    message_thread_id=thread_id,
+                )
+                return
+
+            # Write sentinel for post-restart message (use actual installed version)
+            await asyncio.to_thread(
+                write_upgrade_sentinel,
+                self._orch.paths.ductor_home,
+                chat_id=chat_id,
+                old_version=current_version,
+                new_version=installed_version,
+            )
+
+            await self._bot.send_message(
+                chat_id,
+                "Bot is restarting...",
+                parse_mode=None,
+                message_thread_id=thread_id,
+            )
+            self._exit_code = EXIT_RESTART
+            await self._dp.stop_polling()
 
     async def _handle_changelog_callback(
         self, chat_id: int, message_id: int, data: str, *, thread_id: int | None = None

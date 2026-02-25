@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import mimetypes
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import yaml
 from aiogram.exceptions import TelegramAPIError
+
+from ductor_bot.files.prompt import MediaInfo
+from ductor_bot.files.prompt import build_media_prompt as _build_media_prompt_generic
+from ductor_bot.files.storage import prepare_destination as _prepare_destination
+from ductor_bot.files.storage import sanitize_filename as _sanitize_filename
+from ductor_bot.files.tags import guess_mime
 
 if TYPE_CHECKING:
     from aiogram import Bot
@@ -21,17 +25,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _INDEX_SKIP = frozenset({"_index.yaml", "CLAUDE.md", "AGENTS.md"})
-
-
-@dataclass(frozen=True, slots=True)
-class MediaInfo:
-    """Metadata for a downloaded Telegram media file."""
-
-    path: Path
-    media_type: str
-    file_name: str
-    caption: str | None
-    original_type: str
 
 
 # ---------------------------------------------------------------------------
@@ -131,21 +124,6 @@ async def download_media(bot: Bot, message: Message, base_dir: Path) -> MediaInf
         caption=message.caption,
         original_type=kind,
     )
-
-
-def _prepare_destination(base_dir: Path, file_name: str) -> Path:
-    """Create date directory and return a non-colliding destination path."""
-    day_dir = base_dir / datetime.now(tz=UTC).strftime("%Y-%m-%d")
-    day_dir.mkdir(parents=True, exist_ok=True)
-
-    dest = day_dir / file_name
-    if dest.exists():
-        stem, suffix = dest.stem, dest.suffix
-        counter = 1
-        while dest.exists():
-            dest = day_dir / f"{stem}_{counter}{suffix}"
-            counter += 1
-    return dest
 
 
 # ---------------------------------------------------------------------------
@@ -249,7 +227,7 @@ def update_index(base_dir: Path) -> None:
             if not f.is_file() or f.name in _INDEX_SKIP:
                 continue
             stat = f.stat()
-            mime = mimetypes.guess_type(f.name)[0] or "application/octet-stream"
+            mime = guess_mime(f)
             files.append(
                 {
                     "name": f.name,
@@ -281,53 +259,5 @@ def update_index(base_dir: Path) -> None:
 
 
 def build_media_prompt(info: MediaInfo, workspace: Path) -> str:
-    """Build the prompt injected into the orchestrator for a received file.
-
-    Paths are relative to *workspace* so they work in both host and Docker.
-    """
-    rel_path: Path | str = info.path
-    with contextlib.suppress(ValueError):
-        rel_path = info.path.relative_to(workspace)
-
-    lines = [
-        "[INCOMING FILE]",
-        "The user sent you a file via Telegram.",
-        f"Path: {rel_path}",
-        f"Type: {info.media_type}",
-        f"Original filename: {info.file_name}",
-        "",
-        "Check tools/telegram_tools/CLAUDE.md for file handling instructions.",
-    ]
-
-    if info.original_type in ("voice", "audio"):
-        lines.append(
-            "This is an audio/voice message. Use "
-            f"tools/telegram_tools/transcribe_audio.py --file {rel_path} "
-            "to transcribe it, then respond to the content."
-        )
-
-    if info.original_type in ("video", "video_note"):
-        lines.append(
-            "This is a video file. Use "
-            f"tools/telegram_tools/process_video.py --file {rel_path} "
-            "to extract keyframes and transcribe audio, then respond to the content."
-        )
-
-    if info.caption:
-        lines.append("")
-        lines.append(f"User message: {info.caption}")
-
-    return "\n".join(lines)
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _sanitize_filename(name: str) -> str:
-    """Remove path separators and null bytes, collapse underscores."""
-    name = name.replace("/", "_").replace("\\", "_").replace("\x00", "")
-    while "__" in name:
-        name = name.replace("__", "_")
-    return name.strip("_. ")[:120] or "file"
+    """Build the Telegram-specific prompt for a received media file."""
+    return _build_media_prompt_generic(info, workspace, transport="Telegram")

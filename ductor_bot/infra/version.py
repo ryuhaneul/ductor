@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import logging
+import time
 from dataclasses import dataclass
 
 import aiohttp
@@ -45,13 +46,23 @@ class VersionInfo:
     summary: str
 
 
-async def check_pypi() -> VersionInfo | None:
-    """Check PyPI for the latest version. Returns None on failure."""
+async def check_pypi(*, fresh: bool = False) -> VersionInfo | None:
+    """Check PyPI for the latest version. Returns None on failure.
+
+    When ``fresh=True``, request with no-cache headers and a cache-busting
+    query parameter to reduce stale CDN/cache responses.
+    """
     current = get_current_version()
+    headers = None
+    params = None
+    if fresh:
+        headers = {"Cache-Control": "no-cache", "Pragma": "no-cache"}
+        params = {"_": str(time.time_ns())}
+
     try:
         async with (
             aiohttp.ClientSession(timeout=_TIMEOUT) as session,
-            session.get(_PYPI_URL) as resp,
+            session.get(_PYPI_URL, headers=headers, params=params) as resp,
         ):
             if resp.status != 200:
                 return None

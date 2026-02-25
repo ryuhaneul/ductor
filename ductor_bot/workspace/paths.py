@@ -88,6 +88,10 @@ class DuctorPaths:
         return self.workspace / "telegram_files"
 
     @property
+    def api_files_dir(self) -> Path:
+        return self.workspace / "api_files"
+
+    @property
     def memory_system_dir(self) -> Path:
         return self.workspace / "memory_system"
 

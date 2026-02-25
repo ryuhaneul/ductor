@@ -10,9 +10,10 @@ from ductor_bot.bot.formatting import (
     split_html_message,
 )
 from ductor_bot.bot.middleware import AuthMiddleware, SequentialMiddleware
-from ductor_bot.bot.sender import extract_file_paths, send_file, send_rich
+from ductor_bot.bot.sender import send_file, send_rich
 from ductor_bot.bot.streaming import StreamEditor, StreamEditorProtocol, create_stream_editor
 from ductor_bot.bot.typing import TypingContext
+from ductor_bot.files.tags import extract_file_paths
 
 __all__ = [
     "ABORT_WORDS",

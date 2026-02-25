@@ -1,6 +1,6 @@
 # orchestrator/
 
-Central routing layer between Telegram UI and CLI execution.
+Central routing layer between ingress transports (Telegram + optional API server) and CLI execution.
 
 ## Files
 
@@ -12,6 +12,7 @@ Central routing layer between Telegram UI and CLI execution.
 - `hooks.py`: hook registry + `MAINMEMORY_REMINDER`
 - `model_selector.py`: interactive model/provider switch wizard (`ms:*`)
 - `cron_selector.py`: interactive cron toggles (`crn:*`)
+- API server integration points in `core.py`: `_start_api_server()`, `_api_server`, shutdown stop path
 
 ## Startup (`Orchestrator.create`)
 
@@ -25,9 +26,11 @@ Central routing layer between Telegram UI and CLI execution.
 8. start model caches (`_init_model_caches`):
    - `GeminiCacheObserver` (`gemini_models.json`) with refresh callback to `set_gemini_models`
    - `CodexCacheObserver` (`codex_models.json`)
-9. construct/start `CronObserver`, `HeartbeatObserver`, `WebhookObserver`, `CleanupObserver`
-10. start rule sync watcher (`watch_rule_files`)
-11. start skill sync watcher (`watch_skill_sync`)
+9. construct `CronObserver` + `WebhookObserver` (heartbeat/cleanup already constructed in `__init__`)
+10. start `CronObserver`, `HeartbeatObserver`, `WebhookObserver`, `CleanupObserver`
+11. if `config.api.enabled`: start `ApiServer` via `_start_api_server`
+12. start rule sync watcher (`watch_rule_files`)
+13. start skill sync watcher (`watch_skill_sync`)
 
 ## Routing entry points
 
@@ -156,12 +159,34 @@ Callback namespace: `crn:`
 
 This keeps wake dispatch behind the same per-chat lock as normal messages.
 
+## API wiring
+
+`_start_api_server()` in `core.py`:
+
+1. auto-generates `api.token` when empty and persists it to `config.json`
+2. computes default API `chat_id` from first `allowed_user_ids` entry (fallback `1`)
+3. constructs `ApiServer(config.api, default_chat_id=...)`
+4. wires callbacks:
+   - message streaming -> `handle_message_streaming`
+   - abort -> `abort`
+5. wires file context:
+   - `allowed_roots` from `resolve_allowed_roots(config.file_access, paths.workspace)`
+   - upload directory `paths.api_files_dir`
+   - workspace root for relative prompt paths
+6. starts aiohttp server
+
+Note:
+
+- `config.api.chat_id` exists in schema but is currently not consumed by startup wiring.
+- clients can still override session via auth payload `{"type":"auth","chat_id":...}`.
+
 ## Shutdown
 
 `Orchestrator.shutdown()`:
 
-1. cancel rule/skill watcher tasks
-2. `cleanup_ductor_links(paths)`
-3. stop heartbeat/webhook/cron/cleanup observers
-4. stop codex and gemini cache observers
-5. teardown Docker container (if managed)
+1. stop API server if running
+2. cancel rule/skill watcher tasks
+3. `cleanup_ductor_links(paths)`
+4. stop heartbeat/webhook/cron/cleanup observers
+5. stop codex and gemini cache observers
+6. teardown Docker container (if managed)

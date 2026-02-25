@@ -76,6 +76,23 @@ async def test_kill_all_empty_returns_zero() -> None:
     assert count == 0
 
 
+async def test_kill_all_active_across_chats() -> None:
+    reg = ProcessRegistry()
+    proc1 = _mock_process(pid=11)
+    proc2 = _mock_process(pid=12)
+    reg.register(chat_id=1, process=proc1, label="main")
+    reg.register(chat_id=2, process=proc2, label="main")
+
+    with patch("ductor_bot.cli.process_registry.asyncio.sleep", new_callable=AsyncMock):
+        count = await reg.kill_all_active()
+
+    assert count == 2
+    assert reg.has_active(1) is False
+    assert reg.has_active(2) is False
+    assert reg.was_aborted(1) is True
+    assert reg.was_aborted(2) is True
+
+
 def test_multiple_chats_isolated() -> None:
     reg = ProcessRegistry()
     proc1 = _mock_process(pid=1)

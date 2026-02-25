@@ -63,6 +63,11 @@ class TestIsAbortMessage:
 
         assert is_abort_message("/STOP") is True
 
+    def test_stop_command_with_bot_mention(self) -> None:
+        from ductor_bot.bot.abort import is_abort_message
+
+        assert is_abort_message("/stop@ductor_bot") is True
+
     def test_stop_command_with_whitespace(self) -> None:
         from ductor_bot.bot.abort import is_abort_message
 

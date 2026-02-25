@@ -92,6 +92,7 @@ def load_config() -> AgentConfig:
         else:
             defaults = AgentConfig().model_dump(mode="json")
             defaults["gemini_api_key"] = DEFAULT_EMPTY_GEMINI_API_KEY
+            defaults.pop("api", None)  # Beta: only written by `ductor api enable`
             config_path.write_text(
                 json.dumps(defaults, indent=2, ensure_ascii=False) + "\n",
                 encoding="utf-8",
@@ -111,6 +112,7 @@ def load_config() -> AgentConfig:
 
     defaults = AgentConfig().model_dump(mode="json")
     defaults["gemini_api_key"] = DEFAULT_EMPTY_GEMINI_API_KEY
+    defaults.pop("api", None)  # Beta: only written by `ductor api enable`
     merged, changed = deep_merge_config(user_data, defaults)
     changed = changed or normalized_existing
 
@@ -275,6 +277,7 @@ def _print_usage() -> None:
     table.add_row("ductor service install", f"Run as background service ({svc_hint})")
     table.add_row("ductor service", "Service management (status/stop/logs/...)")
     table.add_row("ductor docker", "Docker management (rebuild/enable/disable)")
+    table.add_row("ductor api", "API server management (enable/disable) [beta]")
     table.add_row("ductor status", "Show bot status, paths, and stats")
     table.add_row("ductor help", "Show this message")
     table.add_row("-v, --verbose", "Verbose logging output")
@@ -515,6 +518,7 @@ def _uninstall() -> None:
 def _upgrade() -> None:
     """Stop bot, upgrade package, restart."""
     from ductor_bot.infra.install import detect_install_mode
+    from ductor_bot.infra.updater import perform_upgrade_pipeline
     from ductor_bot.infra.version import get_current_version
 
     mode = detect_install_mode()
@@ -549,46 +553,18 @@ def _upgrade() -> None:
     # 1. Graceful stop
     _stop_bot()
 
-    # 2. Upgrade (bypass pip cache to avoid stale wheels)
+    # 2. Upgrade + verification pipeline
     _console.print("[dim]Upgrading package...[/dim]")
-    env = {**os.environ, "PIP_NO_CACHE_DIR": "1"}
-    if mode == "pipx":
-        result = subprocess.run(
-            ["pipx", "upgrade", "--force", "ductor"],
-            capture_output=True,
-            text=True,
-            check=False,
-            env=env,
-        )
-    else:
-        result = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--upgrade", "ductor"],
-            capture_output=True,
-            text=True,
-            check=False,
-            env=env,
-        )
-
-    if result.returncode != 0:
-        _console.print(f"[bold red]Upgrade failed:[/bold red]\n{result.stderr or result.stdout}")
-        return
-
-    output = result.stdout.strip()
+    changed, actual, output = asyncio.run(
+        perform_upgrade_pipeline(current_version=current),
+    )
     if output:
         _console.print(f"[dim]{output}[/dim]")
 
-    # Verify version actually changed
-    check = subprocess.run(
-        [sys.executable, "-c", "from importlib.metadata import version; print(version('ductor'))"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    actual = check.stdout.strip() if check.returncode == 0 else current
-    if actual == current:
+    if not changed:
         _console.print(
             f"[bold yellow]Version unchanged after upgrade ({actual}).[/bold yellow]\n"
-            "The new release may not have propagated to PyPI yet. Try again in a few minutes."
+            "Automatic retry was attempted, but no new installed version could be verified yet."
         )
         return
 
@@ -653,6 +629,7 @@ _COMMANDS: dict[str, str] = {
     "reset": "setup",
     "service": "service",
     "docker": "docker",
+    "api": "api",
 }
 
 _SERVICE_SUBCOMMANDS = frozenset({"install", "status", "stop", "start", "logs", "uninstall"})
@@ -863,6 +840,175 @@ def _cmd_docker(args: list[str]) -> None:
     _console.print()
 
 
+# ---------------------------------------------------------------------------
+# API management (beta)
+# ---------------------------------------------------------------------------
+
+_API_SUBCOMMANDS = frozenset({"enable", "disable"})
+
+
+def _parse_api_subcommand(args: list[str]) -> str | None:
+    """Extract the subcommand after 'api' from CLI args."""
+    found = False
+    for a in args:
+        if a.startswith("-"):
+            continue
+        if not found and a == "api":
+            found = True
+            continue
+        if found:
+            return a if a in _API_SUBCOMMANDS else None
+    return None
+
+
+def _print_api_help() -> None:
+    """Print the API subcommand help table with current status."""
+    _console.print()
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column(style="bold green", min_width=30)
+    table.add_column()
+    table.add_row("ductor api enable", "Enable the WebSocket API server")
+    table.add_row("ductor api disable", "Disable the WebSocket API server")
+
+    # Show current status
+    paths = resolve_paths()
+    status = "[dim]not configured[/dim]"
+    if paths.config_path.exists():
+        try:
+            data = json.loads(paths.config_path.read_text(encoding="utf-8"))
+            api_cfg = data.get("api", {})
+            if isinstance(api_cfg, dict) and api_cfg.get("enabled"):
+                port = api_cfg.get("port", 8741)
+                status = f"[green]enabled[/green] (port {port})"
+            elif isinstance(api_cfg, dict):
+                status = "[dim]disabled[/dim]"
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    _console.print(
+        Panel(
+            table,
+            title="[bold]API Commands[/bold] [dim](beta)[/dim]",
+            border_style="blue",
+            padding=(1, 0),
+        ),
+    )
+    _console.print(f"  Status: {status}")
+    _console.print()
+
+
+def _nacl_available() -> bool:
+    """Check if PyNaCl is importable."""
+    try:
+        import nacl.public  # noqa: F401
+    except ImportError:
+        return False
+    else:
+        return True
+
+
+def _api_install_hint() -> str:
+    """Return the install command for PyNaCl based on install mode."""
+    from ductor_bot.infra.install import detect_install_mode
+
+    mode = detect_install_mode()
+    if mode == "pipx":
+        return "pipx inject ductor PyNaCl"
+    return "pip install ductor[api]"
+
+
+def _api_enable() -> None:
+    """Enable the API server: check deps, write config, generate token."""
+    if not _nacl_available():
+        hint = _api_install_hint()
+        _console.print(
+            Panel(
+                "[bold yellow]PyNaCl is required for the API server (E2E encryption).[/bold yellow]"
+                f"\n\nInstall it with:\n\n  [bold]{hint}[/bold]"
+                "\n\nThen run [bold]ductor api enable[/bold] again.",
+                title="[bold]Missing dependency[/bold]",
+                border_style="yellow",
+                padding=(1, 2),
+            ),
+        )
+        return
+
+    result = _docker_read_config()
+    if result is None:
+        return
+    config_path, data = result
+
+    import secrets as _secrets
+
+    api = data.get("api", {})
+    if not isinstance(api, dict):
+        api = {}
+    api["enabled"] = True
+    if not api.get("token"):
+        api["token"] = _secrets.token_urlsafe(32)
+    api.setdefault("host", "0.0.0.0")  # noqa: S104
+    api.setdefault("port", 8741)
+    api.setdefault("chat_id", 0)
+    api.setdefault("allow_public", False)
+    data["api"] = api
+
+    config_path.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    _console.print(
+        Panel(
+            "[bold green]API server enabled.[/bold green]\n\n"
+            f"  Host:   [cyan]{api['host']}[/cyan]\n"
+            f"  Port:   [cyan]{api['port']}[/cyan]\n"
+            f"  Token:  [cyan]{api['token']}[/cyan]\n\n"
+            "[dim]Restart the bot to start the API server.[/dim]\n"
+            "[dim]Designed for use with Tailscale or other private networks.[/dim]",
+            title="[bold]API Server[/bold] [dim](beta)[/dim]",
+            border_style="green",
+            padding=(1, 2),
+        ),
+    )
+
+
+def _api_disable() -> None:
+    """Disable the API server in config."""
+    result = _docker_read_config()
+    if result is None:
+        return
+    config_path, data = result
+
+    api = data.get("api", {})
+    if not isinstance(api, dict):
+        api = {}
+    api["enabled"] = False
+    data["api"] = api
+
+    config_path.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    _console.print("API server: [dim]disabled[/dim]")
+    _console.print("[dim]Restart the bot to apply.[/dim]")
+
+
+def _cmd_api(args: list[str]) -> None:
+    """Handle 'ductor api <subcommand>'."""
+    sub = _parse_api_subcommand(args)
+    if sub is None:
+        _print_api_help()
+        return
+
+    dispatch: dict[str, _Action] = {
+        "enable": _api_enable,
+        "disable": _api_disable,
+    }
+    _console.print()
+    dispatch[sub]()
+    _console.print()
+
+
 def _default_action(verbose: bool) -> None:
     """Auto-onboarding if unconfigured, then start bot."""
     if not _is_configured():
@@ -896,6 +1042,7 @@ def main() -> None:
         "setup": lambda: _cmd_setup(verbose),
         "service": lambda: _cmd_service(args),
         "docker": lambda: _cmd_docker(args),
+        "api": lambda: _cmd_api(args),
     }
 
     handler = dispatch.get(action) if action else None

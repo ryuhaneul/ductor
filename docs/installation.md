@@ -135,6 +135,33 @@ ductor docker rebuild
 - `enable` / `disable` toggles `docker.enabled` in `config.json` (restart bot afterwards).
 - `rebuild` stops the bot, removes container + image, and forces fresh build on next start.
 
+## Direct API server (optional)
+
+Enable in config:
+
+```json
+{
+  "api": {
+    "enabled": true,
+    "host": "0.0.0.0",
+    "port": 8741,
+    "token": "",
+    "allow_public": false
+  }
+}
+```
+
+Notes:
+
+- token is auto-generated and persisted on first API start when empty.
+- endpoints:
+  - WebSocket: `ws://<host>:8741/ws`
+  - health: `GET /health`
+  - file download: `GET /files?path=...` (Bearer token)
+  - file upload: `POST /upload` (Bearer token, multipart)
+- default API session maps to first `allowed_user_ids` entry; clients can override `chat_id` in auth payload.
+- recommended deployment is a private network (for example Tailscale).
+
 ## Background service
 
 Install:

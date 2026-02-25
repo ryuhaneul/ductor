@@ -134,13 +134,20 @@ Deletes old top-level files from:
 
 - `workspace/telegram_files/`
 - `workspace/output_to_user/`
+- `workspace/api_files/`
 
 Retention windows:
 
 - `cleanup.telegram_files_days`
 - `cleanup.output_to_user_days`
+- `cleanup.api_files_days`
 
 Cleanup is non-recursive.
+
+Current implication:
+
+- uploads are stored in dated subdirectories (`YYYY-MM-DD/`),
+- those subdirectory files are not removed by current cleanup logic.
 
 ## Config blocks
 
@@ -158,6 +165,7 @@ Cleanup is non-recursive.
     "enabled": true,
     "telegram_files_days": 30,
     "output_to_user_days": 30,
+    "api_files_days": 30,
     "check_hour": 3
   },
   "webhooks": {

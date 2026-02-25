@@ -155,6 +155,39 @@ class TestCheckPypi:
 
         assert result is None
 
+    async def test_fresh_mode_sets_cache_bust_headers(self) -> None:
+        call_kwargs: dict[str, object] = {}
+        resp = MagicMock()
+        resp.status = 200
+        resp.json = AsyncMock(return_value={"info": {"version": "2.0.0", "summary": "Fresh"}})
+
+        @asynccontextmanager
+        async def mock_get(*_args: object, **kwargs: object) -> AsyncGenerator[MagicMock, None]:
+            call_kwargs.update(kwargs)
+            yield resp
+
+        session = MagicMock()
+        session.get = mock_get
+
+        @asynccontextmanager
+        async def mock_session_cm(**_kwargs: object) -> AsyncGenerator[MagicMock, None]:
+            yield session
+
+        with (
+            patch("ductor_bot.infra.version.get_current_version", return_value="1.0.0"),
+            patch("ductor_bot.infra.version.aiohttp.ClientSession", mock_session_cm),
+        ):
+            result = await check_pypi(fresh=True)
+
+        assert result is not None
+        headers = call_kwargs.get("headers")
+        params = call_kwargs.get("params")
+        assert isinstance(headers, dict)
+        assert isinstance(params, dict)
+        assert headers.get("Cache-Control") == "no-cache"
+        assert headers.get("Pragma") == "no-cache"
+        assert "_" in params
+
     def test_version_info_is_frozen(self) -> None:
         info = VersionInfo(current="1.0.0", latest="2.0.0", update_available=True, summary="test")
         assert info.current == "1.0.0"

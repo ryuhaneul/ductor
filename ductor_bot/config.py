@@ -71,6 +71,7 @@ class CleanupConfig(BaseModel):
     enabled: bool = True
     telegram_files_days: int = 30
     output_to_user_days: int = 30
+    api_files_days: int = 30
     check_hour: int = 3
 
 
@@ -91,6 +92,25 @@ class WebhookConfig(BaseModel):
     token: str = ""
     max_body_bytes: int = 262144
     rate_limit_per_minute: int = 30
+
+
+class ApiConfig(BaseModel):
+    """Settings for the direct WebSocket API server.
+
+    Designed for use over Tailscale or other private networks.
+    When ``allow_public`` is False and Tailscale is not detected,
+    the server still starts but logs a prominent warning.
+
+    ``chat_id`` controls which session the API client uses.
+    ``0`` means "use the first ``allowed_user_ids`` entry".
+    """
+
+    enabled: bool = False
+    host: str = "0.0.0.0"  # noqa: S104
+    port: int = 8741
+    token: str = ""
+    chat_id: int = 0
+    allow_public: bool = False
 
 
 def deep_merge_config(
@@ -163,6 +183,7 @@ class AgentConfig(BaseModel):
     heartbeat: HeartbeatConfig = Field(default_factory=HeartbeatConfig)
     cleanup: CleanupConfig = Field(default_factory=CleanupConfig)
     webhooks: WebhookConfig = Field(default_factory=WebhookConfig)
+    api: ApiConfig = Field(default_factory=ApiConfig)
     cli_parameters: CLIParametersConfig = Field(default_factory=CLIParametersConfig)
     user_timezone: str = ""
     telegram_token: str = ""

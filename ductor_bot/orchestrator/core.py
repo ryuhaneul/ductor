@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import secrets
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -34,6 +35,7 @@ from ductor_bot.errors import (
     WebhookError,
     WorkspaceError,
 )
+from ductor_bot.files.allowed_roots import resolve_allowed_roots
 from ductor_bot.heartbeat import HeartbeatObserver
 from ductor_bot.infra.docker import DockerManager
 from ductor_bot.orchestrator.commands import (
@@ -149,6 +151,7 @@ class Orchestrator:
         self._webhook_observer: WebhookObserver | None = (
             None  # Created in create() after cache init
         )
+        self._api_stop: Callable[[], Awaitable[None]] | None = None
         self._cleanup_observer = CleanupObserver(config, paths)
         self._codex_cache_observer: CodexCacheObserver | None = None
         self._gemini_cache_observer: GeminiCacheObserver | None = None
@@ -223,6 +226,10 @@ class Orchestrator:
         await orch._heartbeat.start()
         await orch._webhook_observer.start()
         await orch._cleanup_observer.start()
+
+        # Direct API server (WebSocket, designed for Tailscale)
+        if config.api.enabled:
+            await orch._start_api_server(config, paths)
         orch._rule_sync_task = asyncio.create_task(watch_rule_files(paths.workspace))
         logger.info("Rule file watcher started (CLAUDE.md <-> AGENTS.md <-> GEMINI.md)")
         orch._skill_sync_task = asyncio.create_task(
@@ -306,6 +313,35 @@ class Orchestrator:
 
             self._gemini_api_key_mode = gemini_uses_api_key_mode()
         return self._gemini_api_key_mode
+
+    def _build_provider_info(self) -> list[dict[str, object]]:
+        """Build provider metadata for the API auth_ok response.
+
+        Only includes authenticated providers.
+        """
+        provider_meta: dict[str, tuple[str, str]] = {
+            "claude": ("Claude Code", "#F97316"),
+            "gemini": ("Gemini", "#8B5CF6"),
+            "codex": ("Codex", "#10B981"),
+        }
+        providers: list[dict[str, object]] = []
+        for pid in sorted(self._available_providers):
+            name, color = provider_meta.get(pid, (pid.title(), "#A1A1AA"))
+            models: list[str]
+            if pid == "claude":
+                models = sorted(_CLAUDE_MODELS)
+            elif pid == "gemini":
+                gemini = get_gemini_models()
+                models = sorted(gemini) if gemini else sorted(_GEMINI_ALIASES)
+            elif pid == "codex":
+                cache = (
+                    self._codex_cache_observer.get_cache() if self._codex_cache_observer else None
+                )
+                models = [m.id for m in cache.models] if cache and cache.models else []
+            else:
+                models = []
+            providers.append({"id": pid, "name": name, "color": color, "models": models})
+        return providers
 
     async def handle_message(self, chat_id: int, text: str) -> OrchestratorResult:
         """Main entry point: route message to appropriate handler."""
@@ -497,8 +533,63 @@ class Orchestrator:
             logger.warning("Docker recovery failed, falling back to host execution")
             self._cli_service.update_docker_container("")
 
+    async def _start_api_server(
+        self,
+        config: AgentConfig,
+        paths: DuctorPaths,
+    ) -> None:
+        """Initialize and start the direct WebSocket API server."""
+        try:
+            from ductor_bot.api.server import ApiServer
+        except ImportError:
+            logger.warning(
+                "API server enabled but PyNaCl is not installed. "
+                "Install with: pip install ductor[api]"
+            )
+            return
+
+        if not config.api.token:
+            from ductor_bot.config import update_config_file_async
+
+            token = secrets.token_urlsafe(32)
+            config.api.token = token
+            await update_config_file_async(
+                paths.config_path,
+                api={**config.api.model_dump(), "token": token},
+            )
+            logger.info("Generated API auth token (persisted to config)")
+
+        default_chat_id = config.allowed_user_ids[0] if config.allowed_user_ids else 1
+        server = ApiServer(config.api, default_chat_id=default_chat_id)
+        server.set_message_handler(self.handle_message_streaming)
+        server.set_abort_handler(self.abort)
+        server.set_file_context(
+            allowed_roots=resolve_allowed_roots(config.file_access, paths.workspace),
+            upload_dir=paths.api_files_dir,
+            workspace=paths.workspace,
+        )
+        server.set_provider_info(self._build_provider_info())
+        server.set_active_state_getter(lambda: self.resolve_runtime_target(self._config.model))
+
+        try:
+            await server.start()
+        except OSError:
+            logger.exception(
+                "Failed to start API server on %s:%d",
+                config.api.host,
+                config.api.port,
+            )
+            return
+
+        self._api_stop = server.stop
+
     async def shutdown(self) -> None:
         """Cleanup on bot shutdown."""
+        killed = await self._process_registry.kill_all_active()
+        if killed:
+            logger.info("Shutdown terminated %d active CLI process(es)", killed)
+        if self._api_stop is not None:
+            await self._api_stop()
         for task in (self._rule_sync_task, self._skill_sync_task):
             if task and not task.done():
                 task.cancel()

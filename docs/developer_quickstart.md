@@ -23,7 +23,7 @@ ductor
 
 First run auto-starts onboarding and writes config to `~/.ductor/config/config.json`.
 
-Primary runtime files:
+Primary runtime files/directories:
 
 - `~/.ductor/sessions.json`
 - `~/.ductor/cron_jobs.json`
@@ -45,14 +45,14 @@ Expected: zero warnings, zero errors.
 ## 4) Core mental model
 
 ```text
-Telegram update
-  -> bot layer (handlers + middleware)
+Telegram update or API message
+  -> ingress layer (bot middleware/handlers or ApiServer)
   -> orchestrator (routing + flows)
   -> CLI service (claude/codex/gemini subprocess)
-  -> streamed/non-streamed response to Telegram
+  -> streamed/non-streamed response to Telegram or API client
 ```
 
-Background observers run in-process:
+Background systems run in-process:
 
 - cron
 - heartbeat
@@ -63,6 +63,10 @@ Background observers run in-process:
 - rule sync
 - skill sync
 - update check (upgradeable installs only)
+
+Optional network service:
+
+- direct API server (`ApiServer`) when `api.enabled=true`
 
 ## 5) Read order in code
 
@@ -79,6 +83,8 @@ Hot paths:
 - command handling: `ductor_bot/orchestrator/commands.py`
 - provider execution: `ductor_bot/cli/service.py`
 - provider wrappers: `ductor_bot/cli/claude_provider.py`, `ductor_bot/cli/codex_provider.py`, `ductor_bot/cli/gemini_provider.py`
+- direct API ingress: `ductor_bot/api/server.py`
+- shared file helpers: `ductor_bot/files/allowed_roots.py`, `ductor_bot/files/tags.py`, `ductor_bot/files/storage.py`, `ductor_bot/files/prompt.py`
 - workspace/rules/skills: `ductor_bot/workspace/init.py`, `ductor_bot/workspace/rules_selector.py`, `ductor_bot/workspace/skill_sync.py`
 
 ## 6) Common debug paths
@@ -89,6 +95,12 @@ If message handling is wrong:
 2. `ductor_bot/bot/app.py`
 3. `ductor_bot/orchestrator/core.py`
 4. `ductor_bot/cli/service.py`
+
+If direct API is wrong:
+
+1. `ductor_bot/api/server.py`
+2. `ductor_bot/orchestrator/core.py` (`_start_api_server` wiring)
+3. `ductor_bot/files/*` (path safety, MIME detection, upload prompt construction)
 
 If automation is not firing:
 
@@ -109,6 +121,7 @@ If rules/skills drift:
 - `/stop` is middleware-level abort handling before normal command routing.
 - `/new` resets only the active provider bucket in that chat.
 - cron/webhook `cron_task` runs support provider/model/reasoning/CLI-arg overrides.
+- direct API upload writes to `workspace/api_files/YYYY-MM-DD/`.
 - rule sync updates existing `CLAUDE.md`, `AGENTS.md`, and `GEMINI.md` siblings by mtime.
 - Zone 2 overwrite in workspace init includes:
   - `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`

@@ -1198,12 +1198,13 @@ class TestFileRoots:
         roots = tg_bot._file_roots(tg_bot._orch.paths)
         assert roots == [tg_bot._orch.paths.workspace]
 
-    def test_unknown_mode_returns_none(self) -> None:
+    def test_unknown_mode_falls_back_to_workspace(self) -> None:
         config = _make_config()
         config.file_access = "something_invalid"
         tg_bot, _ = _make_tg_bot(config)
         tg_bot._orchestrator = _make_orchestrator()
-        assert tg_bot._file_roots(tg_bot._orch.paths) is None
+        roots = tg_bot._file_roots(tg_bot._orch.paths)
+        assert roots == [tg_bot._orch.paths.workspace]
 
     def test_default_config_is_all(self) -> None:
         config = AgentConfig()

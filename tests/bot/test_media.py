@@ -8,6 +8,8 @@ from unittest.mock import MagicMock
 import yaml
 from aiogram.types import Message
 
+from ductor_bot.files.prompt import MediaInfo
+
 
 def _make_message(
     *,
@@ -243,65 +245,6 @@ class TestResolveMedia:
 
 
 # ---------------------------------------------------------------------------
-# Filename sanitization
-# ---------------------------------------------------------------------------
-
-
-class TestSanitizeFilename:
-    def test_removes_slashes(self) -> None:
-        from ductor_bot.bot.media import _sanitize_filename
-
-        assert _sanitize_filename("path/to/file.txt") == "path_to_file.txt"
-
-    def test_removes_null_bytes(self) -> None:
-        from ductor_bot.bot.media import _sanitize_filename
-
-        assert _sanitize_filename("file\x00name.txt") == "filename.txt"
-
-    def test_collapses_underscores(self) -> None:
-        from ductor_bot.bot.media import _sanitize_filename
-
-        assert _sanitize_filename("a___b.txt") == "a_b.txt"
-
-    def test_truncates_long_names(self) -> None:
-        from ductor_bot.bot.media import _sanitize_filename
-
-        result = _sanitize_filename("x" * 200)
-        assert len(result) <= 120
-
-    def test_empty_returns_file(self) -> None:
-        from ductor_bot.bot.media import _sanitize_filename
-
-        assert _sanitize_filename("...") == "file"
-
-
-# ---------------------------------------------------------------------------
-# Destination preparation
-# ---------------------------------------------------------------------------
-
-
-class TestPrepareDestination:
-    def test_creates_date_dir(self, tmp_path: Path) -> None:
-        from ductor_bot.bot.media import _prepare_destination
-
-        dest = _prepare_destination(tmp_path, "test.jpg")
-        assert dest.parent.exists()
-        # Date directory name format: YYYY-MM-DD
-        assert len(dest.parent.name) == 10
-        assert dest.parent.name[4] == "-"
-
-    def test_collision_avoidance(self, tmp_path: Path) -> None:
-        from ductor_bot.bot.media import _prepare_destination
-
-        dest1 = _prepare_destination(tmp_path, "test.jpg")
-        dest1.touch()
-
-        dest2 = _prepare_destination(tmp_path, "test.jpg")
-        assert dest2 != dest1
-        assert "test_1.jpg" in dest2.name
-
-
-# ---------------------------------------------------------------------------
 # Index
 # ---------------------------------------------------------------------------
 
@@ -350,35 +293,26 @@ class TestUpdateIndex:
 
 
 # ---------------------------------------------------------------------------
-# Prompt building
+# Telegram-specific build_media_prompt wrapper
 # ---------------------------------------------------------------------------
 
 
-class TestBuildMediaPrompt:
-    def test_basic_prompt(self, tmp_path: Path) -> None:
-        from ductor_bot.bot.media import MediaInfo, build_media_prompt
-
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-        file_path = workspace / "telegram_files" / "2025-06-15" / "photo_abc.jpg"
-        file_path.parent.mkdir(parents=True)
-        file_path.touch()
+class TestTelegramBuildMediaPrompt:
+    def test_includes_telegram_transport(self, tmp_path: Path) -> None:
+        from ductor_bot.bot.media import build_media_prompt
 
         info = MediaInfo(
-            path=file_path,
+            path=tmp_path / "photo.jpg",
             media_type="image/jpeg",
-            file_name="photo_abc.jpg",
+            file_name="photo.jpg",
             caption=None,
             original_type="photo",
         )
-        prompt = build_media_prompt(info, workspace)
+        prompt = build_media_prompt(info, tmp_path)
+        assert "via Telegram" in prompt
 
-        assert "[INCOMING FILE]" in prompt
-        assert "telegram_files/2025-06-15/photo_abc.jpg" in prompt
-        assert "image/jpeg" in prompt
-
-    def test_voice_prompt_includes_transcription_hint(self, tmp_path: Path) -> None:
-        from ductor_bot.bot.media import MediaInfo, build_media_prompt
+    def test_voice_hint(self, tmp_path: Path) -> None:
+        from ductor_bot.bot.media import build_media_prompt
 
         info = MediaInfo(
             path=tmp_path / "voice.ogg",
@@ -388,52 +322,17 @@ class TestBuildMediaPrompt:
             original_type="voice",
         )
         prompt = build_media_prompt(info, tmp_path)
-
         assert "transcribe_audio.py" in prompt
 
-    def test_video_prompt_includes_process_hint(self, tmp_path: Path) -> None:
-        from ductor_bot.bot.media import MediaInfo, build_media_prompt
-
-        info = MediaInfo(
-            path=tmp_path / "video.mp4",
-            media_type="video/mp4",
-            file_name="video.mp4",
-            caption=None,
-            original_type="video",
-        )
-        prompt = build_media_prompt(info, tmp_path)
-
-        assert "process_video.py" in prompt
-
-    def test_caption_included(self, tmp_path: Path) -> None:
-        from ductor_bot.bot.media import MediaInfo, build_media_prompt
+    def test_caption(self, tmp_path: Path) -> None:
+        from ductor_bot.bot.media import build_media_prompt
 
         info = MediaInfo(
             path=tmp_path / "photo.jpg",
             media_type="image/jpeg",
             file_name="photo.jpg",
-            caption="Look at this!",
+            caption="Hello!",
             original_type="photo",
         )
         prompt = build_media_prompt(info, tmp_path)
-
-        assert "User message: Look at this!" in prompt
-
-    def test_relative_path(self, tmp_path: Path) -> None:
-        from ductor_bot.bot.media import MediaInfo, build_media_prompt
-
-        workspace = tmp_path / "workspace"
-        file_path = workspace / "telegram_files" / "photo.jpg"
-
-        info = MediaInfo(
-            path=file_path,
-            media_type="image/jpeg",
-            file_name="photo.jpg",
-            caption=None,
-            original_type="photo",
-        )
-        prompt = build_media_prompt(info, workspace)
-
-        # Should be relative, not absolute
-        assert str(workspace) not in prompt
-        assert "telegram_files/photo.jpg" in prompt
+        assert "User message: Hello!" in prompt

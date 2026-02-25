@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import inspect
 import logging
 import subprocess
 import sys
@@ -32,11 +34,45 @@ def _win_stdin_pipe() -> int | None:
     return asyncio.subprocess.PIPE if _IS_WINDOWS else None
 
 
-def _win_feed_stdin(process: asyncio.subprocess.Process, data: str) -> None:
+async def _feed_stdin_and_close(
+    process: asyncio.subprocess.Process,
+    data: str,
+    *,
+    windows_only: bool = False,
+) -> None:
+    """Write prompt to stdin and close the writer gracefully."""
+    if windows_only and not _IS_WINDOWS:
+        return
+
+    writer = process.stdin
+    if writer is None:
+        return
+
+    with contextlib.suppress(BrokenPipeError, ConnectionResetError, RuntimeError, ValueError):
+        writer.write(data.encode())
+        drain_result = writer.drain()
+        if inspect.isawaitable(drain_result):
+            await drain_result
+
+    writer.close()
+    wait_closed = getattr(writer, "wait_closed", None)
+    if wait_closed is None:
+        return
+    with contextlib.suppress(
+        BrokenPipeError,
+        ConnectionResetError,
+        RuntimeError,
+        OSError,
+        ValueError,
+    ):
+        closed_result = wait_closed()
+        if inspect.isawaitable(closed_result):
+            await closed_result
+
+
+async def _win_feed_stdin(process: asyncio.subprocess.Process, data: str) -> None:
     """Write prompt to stdin and close on Windows; no-op on POSIX."""
-    if _IS_WINDOWS and process.stdin is not None:
-        process.stdin.write(data.encode())
-        process.stdin.close()
+    await _feed_stdin_and_close(process, data, windows_only=True)
 
 
 @dataclass(slots=True)
