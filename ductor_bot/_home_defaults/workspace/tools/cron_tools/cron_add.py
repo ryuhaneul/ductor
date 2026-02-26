@@ -22,6 +22,7 @@ from pathlib import Path
 from _shared import (
     CRON_TASKS_DIR,
     JOBS_PATH,
+    detect_rule_filenames,
     load_jobs_or_default,
     read_user_timezone,
     render_cron_task_claude_md,
@@ -37,7 +38,7 @@ _TUTORIAL = """\
 CRON ADD -- Create a scheduled cron job with its own workspace.
 
 This tool does TWO things in one step:
-  1. Creates a cron_task folder (CLAUDE.md, AGENTS.md, TASK_DESCRIPTION.md, Memory, scripts/)
+  1. Creates a cron_task folder (rule files for authenticated providers, TASK_DESCRIPTION.md, Memory, scripts/)
   2. Adds a job entry to cron_jobs.json
 
 The CronObserver picks up the JSON change automatically and schedules the job.
@@ -54,7 +55,7 @@ OPTIONAL:
                   If config has no user_timezone either, falls back to UTC.
 
 EXECUTION OVERRIDES (optional, override global config for this specific job):
-  --provider          CLI provider: 'claude' or 'codex' (defaults to global config)
+  --provider          CLI provider: 'claude', 'codex', or 'gemini' (defaults to global config)
   --model             Model name (e.g. 'opus', 'sonnet', 'gpt-5.2-codex')
   --reasoning-effort  Thinking level for Codex: 'low', 'medium', 'high', 'xhigh'
   --cli-parameters    Additional CLI flags as JSON array (e.g. '["--chrome"]' for Claude only)
@@ -179,9 +180,9 @@ def _create_task_folder(name: str, title: str, description: str) -> Path:
     task_dir = CRON_TASKS_DIR / name
     task_dir.mkdir(parents=True, exist_ok=False)
 
-    claude_content = render_cron_task_claude_md(name)
-    (task_dir / "CLAUDE.md").write_text(claude_content, encoding="utf-8")
-    (task_dir / "AGENTS.md").write_text(claude_content, encoding="utf-8")
+    rule_content = render_cron_task_claude_md(name)
+    for filename in detect_rule_filenames():
+        (task_dir / filename).write_text(rule_content, encoding="utf-8")
 
     task_desc = _render_task_description_md(title, description)
     (task_dir / "TASK_DESCRIPTION.md").write_text(task_desc, encoding="utf-8")
@@ -208,8 +209,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--provider",
-        choices=["claude", "codex"],
-        help="CLI provider for this job (claude or codex). If omitted, uses global config.",
+        choices=["claude", "codex", "gemini"],
+        help="CLI provider for this job (claude, codex, or gemini). If omitted, uses global config.",
     )
     parser.add_argument(
         "--model",

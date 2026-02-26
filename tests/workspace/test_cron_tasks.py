@@ -65,14 +65,52 @@ def test_create_cron_task_creates_memory_md(tmp_path: Path) -> None:
     assert memory_md.exists()
 
 
-def test_create_cron_task_agents_md_mirrors_claude_md(tmp_path: Path) -> None:
-    """AGENTS.md (Codex rule file) has identical content to CLAUDE.md."""
+def test_create_cron_task_only_claude_md_when_no_parent_rules(tmp_path: Path) -> None:
+    """Without parent rule files, only CLAUDE.md is created (fallback)."""
     paths = _make_paths(tmp_path)
+    task_path = create_cron_task(paths, "my-feature", "My Feature", "Build the login page")
+    assert (task_path / "CLAUDE.md").exists()
+    assert not (task_path / "AGENTS.md").exists()
+    assert not (task_path / "GEMINI.md").exists()
+
+
+def test_create_cron_task_mirrors_parent_rule_files(tmp_path: Path) -> None:
+    """Task folder mirrors whichever rule files exist in the parent cron_tasks/ dir."""
+    paths = _make_paths(tmp_path)
+    # Simulate RulesSelector having deployed all three providers
+    (paths.cron_tasks_dir / "CLAUDE.md").write_text("parent")
+    (paths.cron_tasks_dir / "AGENTS.md").write_text("parent")
+    (paths.cron_tasks_dir / "GEMINI.md").write_text("parent")
     task_path = create_cron_task(paths, "my-feature", "My Feature", "Build the login page")
     claude_md = task_path / "CLAUDE.md"
     agents_md = task_path / "AGENTS.md"
+    gemini_md = task_path / "GEMINI.md"
+    assert claude_md.exists()
     assert agents_md.exists()
+    assert gemini_md.exists()
     assert agents_md.read_text() == claude_md.read_text()
+    assert gemini_md.read_text() == claude_md.read_text()
+
+
+def test_create_cron_task_only_gemini_when_parent_has_gemini(tmp_path: Path) -> None:
+    """When only Gemini is authenticated, only GEMINI.md is created."""
+    paths = _make_paths(tmp_path)
+    (paths.cron_tasks_dir / "GEMINI.md").write_text("parent")
+    task_path = create_cron_task(paths, "my-feature", "My Feature", "desc")
+    assert not (task_path / "CLAUDE.md").exists()
+    assert not (task_path / "AGENTS.md").exists()
+    assert (task_path / "GEMINI.md").exists()
+
+
+def test_create_cron_task_claude_and_codex_from_parent(tmp_path: Path) -> None:
+    """When parent has CLAUDE.md + AGENTS.md, both are created in task folder."""
+    paths = _make_paths(tmp_path)
+    (paths.cron_tasks_dir / "CLAUDE.md").write_text("parent")
+    (paths.cron_tasks_dir / "AGENTS.md").write_text("parent")
+    task_path = create_cron_task(paths, "my-feature", "My Feature", "desc")
+    assert (task_path / "CLAUDE.md").exists()
+    assert (task_path / "AGENTS.md").exists()
+    assert not (task_path / "GEMINI.md").exists()
 
 
 def test_create_cron_task_creates_scripts_dir(tmp_path: Path) -> None:

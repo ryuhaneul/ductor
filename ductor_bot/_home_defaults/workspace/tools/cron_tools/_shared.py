@@ -13,6 +13,9 @@ CONFIG_PATH = DUCTOR_HOME / "config" / "config.json"
 JOBS_PATH = DUCTOR_HOME / "cron_jobs.json"
 CRON_TASKS_DIR = DUCTOR_HOME / "workspace" / "cron_tasks"
 
+# Provider rule files — only create for authenticated providers.
+_RULE_FILENAMES = ("CLAUDE.md", "AGENTS.md", "GEMINI.md")
+
 
 def read_user_timezone() -> str:
     """Read user_timezone from config.json. Returns empty string if not set."""
@@ -31,6 +34,19 @@ def sanitize_name(raw: str) -> str:
     slug = re.sub(r"[^a-z0-9-]", "-", slug)
     slug = re.sub(r"-{2,}", "-", slug)
     return slug.strip("-")
+
+
+def detect_rule_filenames() -> list[str]:
+    """Determine which rule files to create based on parent cron_tasks/ contents.
+
+    Checks which provider rule files (CLAUDE.md, AGENTS.md, GEMINI.md) exist
+    in the ``cron_tasks/`` root.  These are deployed by the RulesSelector during
+    workspace init based on CLI authentication status.
+
+    Falls back to ``["CLAUDE.md"]`` when no rule files are found.
+    """
+    found = [name for name in _RULE_FILENAMES if (CRON_TASKS_DIR / name).is_file()]
+    return found or ["CLAUDE.md"]
 
 
 def render_cron_task_claude_md(name: str) -> str:

@@ -125,16 +125,19 @@ Marker `## Runtime Environment` prevents duplicate insertion.
 
 ```text
 cron_tasks/<safe_name>/
-  CLAUDE.md
-  AGENTS.md
+  CLAUDE.md    # only if Claude authenticated
+  AGENTS.md    # only if Codex authenticated
+  GEMINI.md    # only if Gemini authenticated
   TASK_DESCRIPTION.md
   <safe_name>_MEMORY.md
   scripts/
 ```
 
+Rule file selection is based on which provider rule files exist in the parent `cron_tasks/` directory (deployed by `RulesSelector` during workspace init). Falls back to `CLAUDE.md` when no parent rule files are found.
+
 Path traversal protection is enforced for create/delete operations.
 
-`sync_rule_files()` only updates already-existing rule files by mtime; it does not create missing `GEMINI.md` files in task folders.
+`sync_rule_files()` only updates already-existing rule files by mtime; it does not create new rule files in task folders.
 
 ## Skill sync summary
 

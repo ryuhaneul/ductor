@@ -12,6 +12,24 @@ from ductor_bot.workspace.paths import DuctorPaths
 
 logger = logging.getLogger(__name__)
 
+# Provider rule files — created per task only for authenticated providers.
+_RULE_FILENAMES = ("CLAUDE.md", "AGENTS.md", "GEMINI.md")
+
+
+def _detect_rule_filenames(cron_tasks_dir: Path) -> list[str]:
+    """Determine which rule files to create based on parent directory contents.
+
+    Checks which provider rule files (CLAUDE.md, AGENTS.md, GEMINI.md) exist
+    in the ``cron_tasks/`` root — these are deployed by ``RulesSelector``
+    based on CLI authentication status.  New task folders mirror only the
+    providers that are currently authenticated.
+
+    Falls back to ``["CLAUDE.md"]`` when no rule files are found (e.g. in tests
+    or before workspace init has run).
+    """
+    found = [name for name in _RULE_FILENAMES if (cron_tasks_dir / name).is_file()]
+    return found or ["CLAUDE.md"]
+
 
 # ---------------------------------------------------------------------------
 # Dynamic templates (only these need Python rendering, all others are files)
@@ -113,17 +131,20 @@ def create_cron_task(
 ) -> Path:
     """Create a new cron task folder with full workspace structure.
 
-    Creates: CLAUDE.md (fixed rules), AGENTS.md (mirror), TASK_DESCRIPTION.md,
-    <name>_MEMORY.md, scripts/. Optional .venv/ (default off).
+    Creates provider-specific rule files (CLAUDE.md / AGENTS.md / GEMINI.md)
+    based on which providers are authenticated (auto-detected from parent
+    ``cron_tasks/`` directory), TASK_DESCRIPTION.md, <name>_MEMORY.md,
+    scripts/.  Optional .venv/ (default off).
     """
     safe_name = _validate_name(name)
     task_dir = paths.cron_tasks_dir / safe_name
 
     task_dir.mkdir(parents=False, exist_ok=False)
 
+    filenames = _detect_rule_filenames(paths.cron_tasks_dir)
     rule_content = render_cron_task_claude_md(safe_name)
-    (task_dir / "CLAUDE.md").write_text(rule_content, encoding="utf-8")
-    (task_dir / "AGENTS.md").write_text(rule_content, encoding="utf-8")
+    for filename in filenames:
+        (task_dir / filename).write_text(rule_content, encoding="utf-8")
 
     task_desc = render_task_description_md(title, description)
     (task_dir / "TASK_DESCRIPTION.md").write_text(task_desc, encoding="utf-8")
@@ -137,7 +158,7 @@ def create_cron_task(
     if with_venv:
         _create_venv(task_dir / ".venv")
 
-    logger.info("Cron task folder created task=%s", safe_name)
+    logger.info("Cron task folder created task=%s rule_files=%s", safe_name, filenames)
     return task_dir
 
 
