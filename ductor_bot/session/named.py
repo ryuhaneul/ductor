@@ -113,13 +113,13 @@ _MAX_NAME_ATTEMPTS = 50
 
 
 def generate_name(existing: set[str]) -> str:
-    """Generate a unique adjective-noun name not in *existing*."""
+    """Generate a unique compact name (e.g. 'redowl') not in *existing*."""
     for _ in range(_MAX_NAME_ATTEMPTS):
-        name = f"{random.choice(_ADJECTIVES)}-{random.choice(_NOUNS)}"  # noqa: S311
+        name = f"{random.choice(_ADJECTIVES)}{random.choice(_NOUNS)}"  # noqa: S311
         if name not in existing:
             return name
     # Fallback: append digit
-    base = f"{random.choice(_ADJECTIVES)}-{random.choice(_NOUNS)}"  # noqa: S311
+    base = f"{random.choice(_ADJECTIVES)}{random.choice(_NOUNS)}"  # noqa: S311
     for i in range(2, 100):
         candidate = f"{base}{i}"
         if candidate not in existing:
