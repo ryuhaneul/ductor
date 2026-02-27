@@ -181,7 +181,11 @@ def load_config() -> AgentConfig:
 
 
 async def run_telegram(config: AgentConfig) -> int:
-    """Validate config and run the Telegram bot.
+    """Validate config and run the bot via AgentSupervisor.
+
+    The supervisor manages the main agent and dynamically created sub-agents
+    from ``agents.json``.  If no sub-agents are defined, the supervisor runs
+    only the main agent — behaviour is identical to the old single-bot path.
 
     Returns the exit code from the bot (``0`` = clean, ``42`` = restart requested).
     """
@@ -194,12 +198,12 @@ async def run_telegram(config: AgentConfig) -> int:
         )
         sys.exit(1)
 
-    from ductor_bot.bot.app import TelegramBot
     from ductor_bot.infra.pidlock import acquire_lock, release_lock
+    from ductor_bot.multiagent.supervisor import AgentSupervisor
 
     acquire_lock(pid_file=paths.ductor_home / "bot.pid", kill_existing=True)
 
-    bot = TelegramBot(config)
+    supervisor = AgentSupervisor(config)
     exit_code = 0
     loop = asyncio.get_running_loop()
     current_task = asyncio.current_task()
@@ -218,7 +222,7 @@ async def run_telegram(config: AgentConfig) -> int:
             installed_signals.append(sig)
 
     try:
-        exit_code = await bot.run()
+        exit_code = await supervisor.start()
     except asyncio.CancelledError:
         logger.info("Termination signal received, shutting down gracefully...")
     except KeyboardInterrupt:
@@ -226,7 +230,7 @@ async def run_telegram(config: AgentConfig) -> int:
     finally:
         for sig in installed_signals:
             loop.remove_signal_handler(sig)
-        await bot.shutdown()
+        await supervisor.stop_all()
         release_lock(pid_file=paths.ductor_home / "bot.pid")
     return exit_code
 

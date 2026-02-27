@@ -100,6 +100,9 @@ class CLIConfig:
     gemini_api_key: str | None = None
     # Extra CLI parameters (provider-specific):
     cli_parameters: list[str] = field(default_factory=list)
+    # Multi-agent identification:
+    agent_name: str = "main"
+    interagent_port: int = 8799
 
 
 def docker_wrap(
@@ -120,7 +123,11 @@ def docker_wrap(
     if config.docker_container:
         logger.debug("docker_wrap container=%s", config.docker_container)
         stdin_flag: list[str] = ["-i"] if interactive else []
-        env_flags: list[str] = ["-e", f"DUCTOR_CHAT_ID={config.chat_id}"]
+        env_flags: list[str] = [
+            "-e", f"DUCTOR_CHAT_ID={config.chat_id}",
+            "-e", f"DUCTOR_AGENT_NAME={config.agent_name}",
+            "-e", f"DUCTOR_INTERAGENT_PORT={config.interagent_port}",
+        ]
         if extra_env:
             for key, value in extra_env.items():
                 env_flags += ["-e", f"{key}={value}"]

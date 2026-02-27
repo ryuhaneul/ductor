@@ -26,6 +26,22 @@ from ductor_bot.infra.process_tree import force_kill_process_tree
 logger = logging.getLogger(__name__)
 
 
+def _build_subprocess_env(config: CLIConfig) -> dict[str, str] | None:
+    """Build environment dict with agent identification vars.
+
+    Returns None if no extra vars are needed (avoids inheriting a stripped env).
+    For non-Docker execution, the subprocess inherits the parent env plus the
+    agent identification variables.
+    """
+    import os
+
+    env = os.environ.copy()
+    env["DUCTOR_AGENT_NAME"] = config.agent_name
+    env["DUCTOR_INTERAGENT_PORT"] = str(config.interagent_port)
+    env["DUCTOR_HOME"] = str(config.working_dir).removesuffix("/workspace")
+    return env
+
+
 @dataclass(slots=True)
 class SubprocessResult:
     """Outcome of a completed streaming subprocess."""
@@ -82,12 +98,14 @@ async def run_streaming_subprocess(  # noqa: PLR0913
     7. Cleanup: cancel drain, unregister tracked process
     8. Post-loop: delegate to *post_handler* (default: yield error on non-zero exit)
     """
+    subprocess_env = _build_subprocess_env(config) if use_cwd else None
     process = await asyncio.create_subprocess_exec(
         *exec_cmd,
         stdin=_win_stdin_pipe(),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         cwd=use_cwd,
+        env=subprocess_env,
         limit=4 * 1024 * 1024,
         creationflags=_CREATION_FLAGS,
     )
@@ -154,12 +172,14 @@ async def run_oneshot_subprocess(  # noqa: PLR0913
     4. Handle timeout
     5. Parse output via *parse_output* callback
     """
+    oneshot_env = _build_subprocess_env(config) if use_cwd else None
     process = await asyncio.create_subprocess_exec(
         *exec_cmd,
         stdin=_win_stdin_pipe(),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         cwd=use_cwd,
+        env=oneshot_env,
         creationflags=_CREATION_FLAGS,
     )
     logger.info("%s subprocess starting pid=%s", provider_label, process.pid)

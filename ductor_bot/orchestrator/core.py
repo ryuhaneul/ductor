@@ -121,6 +121,8 @@ class Orchestrator:
         paths: DuctorPaths,
         *,
         docker_container: str = "",
+        agent_name: str = "main",
+        interagent_port: int = 8799,
     ) -> None:
         self._config = config
         self._paths: DuctorPaths = paths
@@ -146,6 +148,8 @@ class Orchestrator:
                 claude_cli_parameters=tuple(config.cli_parameters.claude),
                 codex_cli_parameters=tuple(config.cli_parameters.codex),
                 gemini_cli_parameters=tuple(config.cli_parameters.gemini),
+                agent_name=agent_name,
+                interagent_port=interagent_port,
             ),
             models=self._models,
             available_providers=frozenset(),
@@ -173,6 +177,7 @@ class Orchestrator:
         self._gemini_api_key_mode: bool | None = None
         self._hook_registry = MessageHookRegistry()
         self._hook_registry.register(MAINMEMORY_REMINDER)
+        self._supervisor: object | None = None  # Set by AgentSupervisor after creation
         self._command_registry = CommandRegistry()
         self._register_commands()
         self._config_reloader: ConfigReloader | None = None
@@ -489,6 +494,23 @@ class Orchestrator:
         reg.register_async("/diagnose", cmd_diagnose)
         reg.register_async("/upgrade", cmd_upgrade)
         reg.register_async("/sessions", cmd_sessions)
+
+    def register_multiagent_commands(self) -> None:
+        """Register /agents, /agent_start, /agent_stop commands.
+
+        Called by the AgentSupervisor after setting ``_supervisor``.
+        """
+        from ductor_bot.multiagent.commands import (
+            cmd_agent_start,
+            cmd_agent_stop,
+            cmd_agents,
+        )
+
+        reg = self._command_registry
+        reg.register_async("/agents", cmd_agents)
+        reg.register_async("/agent_start ", cmd_agent_start)
+        reg.register_async("/agent_stop ", cmd_agent_stop)
+        logger.info("Multi-agent commands registered")
 
     async def reset_session(self, chat_id: int) -> None:
         """Reset the session for a given chat."""
@@ -853,6 +875,37 @@ class Orchestrator:
         if self._gemini_cache_observer:
             await self._gemini_cache_observer.stop()
             self._gemini_cache_observer = None
+
+    # -- Inter-agent communication ------------------------------------------
+
+    async def handle_interagent_message(self, sender: str, message: str) -> str:
+        """Process a message from another agent via the InterAgentBus.
+
+        Runs a one-shot CLI turn (no session resume) with the message wrapped
+        in inter-agent context markers.
+        """
+        from ductor_bot.cli.types import AgentRequest
+
+        prompt = (
+            f"[INTER-AGENT MESSAGE from '{sender}']\n"
+            f"{message}\n"
+            f"[END INTER-AGENT MESSAGE]\n\n"
+            f"Respond to this inter-agent request. Be direct and concise."
+        )
+
+        request = AgentRequest(
+            prompt=prompt,
+            chat_id=0,
+            process_label=f"interagent:{sender}",
+            timeout_seconds=self._config.cli_timeout,
+        )
+
+        try:
+            response = await self._cli_service.execute(request)
+            return response.result if response else ""
+        except Exception:
+            logger.exception("Inter-agent message handling failed (from=%s)", sender)
+            return f"Error processing inter-agent message from '{sender}'"
 
     async def shutdown(self) -> None:
         """Cleanup on bot shutdown."""

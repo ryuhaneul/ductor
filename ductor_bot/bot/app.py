@@ -241,7 +241,8 @@ class TelegramBot:
         r.message(Command("session"))(self._on_session)
         r.message(Command("sessions"))(self._on_sessions)
         r.message(Command("showfiles"))(self._on_showfiles)
-        for cmd in ("status", "memory", "model", "cron", "diagnose", "upgrade"):
+        for cmd in ("status", "memory", "model", "cron", "diagnose", "upgrade",
+                    "agents", "agent_start", "agent_stop"):
             r.message(Command(cmd))(self._on_command)
         r.message()(self._on_message)
         r.callback_query()(self._on_callback_query)

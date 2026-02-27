@@ -43,7 +43,11 @@ _ZONE2_FILES = frozenset({"CLAUDE.md", "AGENTS.md", "GEMINI.md"})
 # Directories where ALL .py files are Zone 2 (framework-managed).
 # User-owned scripts should go in tools/user_tools/ (Zone 3).
 # Paths are relative to home_defaults root (include workspace/ prefix).
-_ZONE2_PY_DIRS = frozenset({"workspace/tools/cron_tools", "workspace/tools/webhook_tools"})
+_ZONE2_PY_DIRS = frozenset({
+    "workspace/tools/cron_tools",
+    "workspace/tools/webhook_tools",
+    "workspace/tools/agent_tools",
+})
 
 # Rule templates are deployed separately by RulesSelector
 _SKIP_FILES = frozenset(
@@ -271,6 +275,7 @@ _REQUIRED_DIRS = (
     "workspace/tools/cron_tools",
     "workspace/tools/telegram_tools",
     "workspace/tools/webhook_tools",
+    "workspace/tools/agent_tools",
     "workspace/output_to_user",
     "workspace/telegram_files",
     "workspace/skills",
