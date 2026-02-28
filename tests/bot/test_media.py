@@ -31,6 +31,7 @@ def _make_message(
     msg.text = text
     msg.caption = caption
     msg.caption_entities = None
+    msg.entities = None
     msg.reply_to_message = None
     msg.answer = MagicMock()
 
@@ -165,6 +166,114 @@ class TestIsMediaAddressed:
 
         msg = _make_message(photo=True, chat_type="group")
         assert is_media_addressed(msg, bot_id=42, bot_username="mybot") is False
+
+
+class TestIsMessageAddressed:
+    """Tests for the generalized is_message_addressed function."""
+
+    def test_reply_to_bot(self) -> None:
+        from ductor_bot.bot.media import is_message_addressed
+
+        msg = _make_message(text="hello", chat_type="group")
+        msg.entities = None
+        msg.reply_to_message = MagicMock()
+        msg.reply_to_message.from_user = MagicMock()
+        msg.reply_to_message.from_user.id = 42
+
+        assert is_message_addressed(msg, bot_id=42, bot_username="mybot") is True
+
+    def test_text_mention(self) -> None:
+        from ductor_bot.bot.media import is_message_addressed
+
+        msg = _make_message(text="@mybot what time is it?", chat_type="group")
+        entity = MagicMock()
+        entity.type = "mention"
+        entity.offset = 0
+        entity.length = 6
+        msg.entities = [entity]
+        msg.reply_to_message = None
+
+        assert is_message_addressed(msg, bot_id=42, bot_username="mybot") is True
+
+    def test_text_mention_case_insensitive(self) -> None:
+        from ductor_bot.bot.media import is_message_addressed
+
+        msg = _make_message(text="@MyBot hey", chat_type="group")
+        entity = MagicMock()
+        entity.type = "mention"
+        entity.offset = 0
+        entity.length = 6
+        msg.entities = [entity]
+        msg.reply_to_message = None
+
+        assert is_message_addressed(msg, bot_id=42, bot_username="mybot") is True
+
+    def test_not_addressed_plain_text(self) -> None:
+        from ductor_bot.bot.media import is_message_addressed
+
+        msg = _make_message(text="just chatting", chat_type="group")
+        msg.entities = None
+        msg.reply_to_message = None
+
+        assert is_message_addressed(msg, bot_id=42, bot_username="mybot") is False
+
+    def test_reply_to_other_user(self) -> None:
+        from ductor_bot.bot.media import is_message_addressed
+
+        msg = _make_message(text="hello", chat_type="group")
+        msg.entities = None
+        msg.reply_to_message = MagicMock()
+        msg.reply_to_message.from_user = MagicMock()
+        msg.reply_to_message.from_user.id = 999
+
+        assert is_message_addressed(msg, bot_id=42, bot_username="mybot") is False
+
+    def test_mention_other_bot(self) -> None:
+        from ductor_bot.bot.media import is_message_addressed
+
+        msg = _make_message(text="@otherbot hey", chat_type="group")
+        entity = MagicMock()
+        entity.type = "mention"
+        entity.offset = 0
+        entity.length = 9
+        msg.entities = [entity]
+        msg.reply_to_message = None
+
+        assert is_message_addressed(msg, bot_id=42, bot_username="mybot") is False
+
+    def test_caption_mention_still_works(self) -> None:
+        from ductor_bot.bot.media import is_message_addressed
+
+        msg = _make_message(photo=True, caption="@mybot look", chat_type="group")
+        entity = MagicMock()
+        entity.type = "mention"
+        entity.offset = 0
+        entity.length = 6
+        msg.caption_entities = [entity]
+        msg.entities = None
+        msg.reply_to_message = None
+
+        assert is_message_addressed(msg, bot_id=42, bot_username="mybot") is True
+
+    def test_no_bot_username(self) -> None:
+        from ductor_bot.bot.media import is_message_addressed
+
+        msg = _make_message(text="@mybot hey", chat_type="group")
+        msg.entities = [MagicMock(type="mention", offset=0, length=6)]
+        msg.reply_to_message = None
+
+        assert is_message_addressed(msg, bot_id=42, bot_username=None) is False
+
+    def test_no_bot_id_reply(self) -> None:
+        from ductor_bot.bot.media import is_message_addressed
+
+        msg = _make_message(text="hello", chat_type="group")
+        msg.entities = None
+        msg.reply_to_message = MagicMock()
+        msg.reply_to_message.from_user = MagicMock()
+        msg.reply_to_message.from_user.id = 42
+
+        assert is_message_addressed(msg, bot_id=None, bot_username="mybot") is False
 
 
 # ---------------------------------------------------------------------------

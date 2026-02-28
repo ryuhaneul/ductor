@@ -15,11 +15,13 @@ def _make_message(
     text: str = "hello",
     *,
     topic_thread_id: int | None = None,
+    chat_type: str = "private",
 ) -> MagicMock:
     """Create a mock aiogram Message."""
     msg = MagicMock(spec=Message)
     msg.chat = MagicMock()
     msg.chat.id = chat_id
+    msg.chat.type = chat_type
     msg.from_user = MagicMock()
     msg.from_user.id = user_id
     msg.text = text
@@ -77,6 +79,65 @@ class TestAuthMiddleware:
         result = await mw(handler, event, {})
         handler.assert_called_once()
         assert result == "pass"
+
+    async def test_group_mention_only_passes_group_message(self) -> None:
+        """Any user in a group passes through when group_mention_only is on."""
+        from ductor_bot.bot.middleware import AuthMiddleware
+
+        mw = AuthMiddleware(allowed_user_ids=set(), group_mention_only=True)
+        handler = AsyncMock(return_value="ok")
+        msg = _make_message(user_id=999, chat_type="group")
+
+        result = await mw(handler, msg, {})
+        handler.assert_called_once()
+        assert result == "ok"
+
+    async def test_group_mention_only_passes_supergroup(self) -> None:
+        from ductor_bot.bot.middleware import AuthMiddleware
+
+        mw = AuthMiddleware(allowed_user_ids=set(), group_mention_only=True)
+        handler = AsyncMock(return_value="ok")
+        msg = _make_message(user_id=999, chat_type="supergroup")
+
+        result = await mw(handler, msg, {})
+        handler.assert_called_once()
+        assert result == "ok"
+
+    async def test_group_mention_only_blocks_private(self) -> None:
+        """Private messages still require allowed_user_ids."""
+        from ductor_bot.bot.middleware import AuthMiddleware
+
+        mw = AuthMiddleware(allowed_user_ids={100}, group_mention_only=True)
+        handler = AsyncMock()
+        msg = _make_message(user_id=999, chat_type="private")
+
+        result = await mw(handler, msg, {})
+        handler.assert_not_called()
+        assert result is None
+
+    async def test_group_mention_only_allowed_private_passes(self) -> None:
+        """Allowed user in private chat still passes with group_mention_only."""
+        from ductor_bot.bot.middleware import AuthMiddleware
+
+        mw = AuthMiddleware(allowed_user_ids={100}, group_mention_only=True)
+        handler = AsyncMock(return_value="ok")
+        msg = _make_message(user_id=100, chat_type="private")
+
+        result = await mw(handler, msg, {})
+        handler.assert_called_once()
+        assert result == "ok"
+
+    async def test_group_mention_only_off_blocks_group(self) -> None:
+        """With group_mention_only=False, unauthorized group users are blocked."""
+        from ductor_bot.bot.middleware import AuthMiddleware
+
+        mw = AuthMiddleware(allowed_user_ids={100}, group_mention_only=False)
+        handler = AsyncMock()
+        msg = _make_message(user_id=999, chat_type="group")
+
+        result = await mw(handler, msg, {})
+        handler.assert_not_called()
+        assert result is None
 
 
 class TestSequentialMiddleware:
