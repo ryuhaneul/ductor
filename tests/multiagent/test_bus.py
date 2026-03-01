@@ -9,11 +9,17 @@ from unittest.mock import AsyncMock, MagicMock
 from ductor_bot.multiagent.bus import InterAgentBus
 
 
-def _make_stack(orch_result: str = "response", session_name: str = "ia-sender") -> MagicMock:
+def _make_stack(
+    orch_result: str = "response",
+    session_name: str = "ia-sender",
+    provider_notice: str = "",
+) -> MagicMock:
     """Create a mock AgentStack with a working orchestrator."""
     stack = MagicMock()
     orch = MagicMock()
-    orch.handle_interagent_message = AsyncMock(return_value=(orch_result, session_name))
+    orch.handle_interagent_message = AsyncMock(
+        return_value=(orch_result, session_name, provider_notice),
+    )
     stack.bot.orchestrator = orch
     return stack
 
@@ -82,9 +88,9 @@ class TestBusSyncSend:
         bus = InterAgentBus()
         stack = _make_stack()
 
-        async def slow_handler(_sender: str, _msg: str, **_kw: object) -> tuple[str, str]:
+        async def slow_handler(_sender: str, _msg: str, **_kw: object) -> tuple[str, str, str]:
             await asyncio.sleep(10)
-            return "too late", "ia-sender"
+            return "too late", "ia-sender", ""
 
         stack.bot.orchestrator.handle_interagent_message = slow_handler
         bus.register("slow", stack)
@@ -169,9 +175,9 @@ class TestBusAsyncSend:
         bus = InterAgentBus()
         stack = _make_stack()
 
-        async def slow_handler(_sender: str, _msg: str, **_kw: object) -> tuple[str, str]:
+        async def slow_handler(_sender: str, _msg: str, **_kw: object) -> tuple[str, str, str]:
             await asyncio.sleep(999)
-            return "never", "ia-sender"
+            return "never", "ia-sender", ""
 
         stack.bot.orchestrator.handle_interagent_message = slow_handler
         bus.register("slow", stack)
@@ -194,9 +200,9 @@ class TestBusCancelAllAsync:
         bus = InterAgentBus()
         stack = _make_stack()
 
-        async def slow(_s: str, _m: str, **_kw: object) -> tuple[str, str]:
+        async def slow(_s: str, _m: str, **_kw: object) -> tuple[str, str, str]:
             await asyncio.sleep(999)
-            return "", "ia-sender"
+            return "", "ia-sender", ""
 
         stack.bot.orchestrator.handle_interagent_message = slow
         bus.register("target", stack)
@@ -223,7 +229,9 @@ class TestBusNewSessionFlag:
         bus.register("target", stack)
         await bus.send("sender", "target", "Hello")
         stack.bot.orchestrator.handle_interagent_message.assert_awaited_once_with(
-            "sender", "Hello", new_session=False,
+            "sender",
+            "Hello",
+            new_session=False,
         )
 
     async def test_sync_send_passes_new_session_true(self) -> None:
@@ -232,7 +240,9 @@ class TestBusNewSessionFlag:
         bus.register("target", stack)
         await bus.send("sender", "target", "Hello", new_session=True)
         stack.bot.orchestrator.handle_interagent_message.assert_awaited_once_with(
-            "sender", "Hello", new_session=True,
+            "sender",
+            "Hello",
+            new_session=True,
         )
 
     async def test_async_send_passes_new_session_to_handler(self) -> None:
@@ -240,9 +250,9 @@ class TestBusNewSessionFlag:
         bus = InterAgentBus()
         call_kwargs: list[dict[str, object]] = []
 
-        async def capturing_handler(sender: str, msg: str, **kw: object) -> tuple[str, str]:
+        async def capturing_handler(sender: str, msg: str, **kw: object) -> tuple[str, str, str]:
             call_kwargs.append({"sender": sender, "msg": msg, **kw})
-            return "done", "ia-sender"
+            return "done", "ia-sender", ""
 
         stack = _make_stack()
         stack.bot.orchestrator.handle_interagent_message = capturing_handler
@@ -261,9 +271,9 @@ class TestBusNewSessionFlag:
         bus = InterAgentBus()
         call_kwargs: list[dict[str, object]] = []
 
-        async def capturing_handler(sender: str, msg: str, **kw: object) -> tuple[str, str]:
+        async def capturing_handler(sender: str, msg: str, **kw: object) -> tuple[str, str, str]:
             call_kwargs.append({"sender": sender, "msg": msg, **kw})
-            return "done", "ia-sender"
+            return "done", "ia-sender", ""
 
         stack = _make_stack()
         stack.bot.orchestrator.handle_interagent_message = capturing_handler
@@ -335,7 +345,9 @@ class TestBusNotifyRecipient:
             message="Do something important",
         )
 
-        with unittest.mock.patch("ductor_bot.bot.sender.send_rich", new_callable=AsyncMock) as mock_send:
+        with unittest.mock.patch(
+            "ductor_bot.bot.sender.send_rich", new_callable=AsyncMock
+        ) as mock_send:
             await bus._notify_recipient(task)
             mock_send.assert_awaited_once()
             call_args = mock_send.call_args
@@ -359,7 +371,9 @@ class TestBusNotifyRecipient:
             message="Hello",
         )
 
-        with unittest.mock.patch("ductor_bot.bot.sender.send_rich", new_callable=AsyncMock) as mock_send:
+        with unittest.mock.patch(
+            "ductor_bot.bot.sender.send_rich", new_callable=AsyncMock
+        ) as mock_send:
             await bus._notify_recipient(task)
             mock_send.assert_not_awaited()
 

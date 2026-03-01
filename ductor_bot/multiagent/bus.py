@@ -66,6 +66,7 @@ class AsyncInterAgentResult:
     error: str | None = None
     elapsed_seconds: float = 0.0
     session_name: str = ""
+    provider_switch_notice: str = ""
 
 
 AsyncResultCallback = Callable[["AsyncInterAgentResult"], Awaitable[None]]
@@ -141,9 +142,11 @@ class InterAgentBus:
                     error=f"Agent '{recipient}' orchestrator not initialized",
                 )
 
-            result_text, _session_name = await asyncio.wait_for(
+            result_text, _session_name, _notice = await asyncio.wait_for(
                 orch.handle_interagent_message(
-                    sender, message, new_session=new_session,
+                    sender,
+                    message,
+                    new_session=new_session,
                 ),
                 timeout=send_timeout,
             )
@@ -256,9 +259,11 @@ class InterAgentBus:
             # Notify the recipient agent's Telegram chat about the incoming task
             await self._notify_recipient(task)
 
-            result_text, session_name = await asyncio.wait_for(
+            result_text, session_name, provider_notice = await asyncio.wait_for(
                 orch.handle_interagent_message(
-                    task.sender, task.message, new_session=task.new_session,
+                    task.sender,
+                    task.message,
+                    new_session=task.new_session,
                 ),
                 timeout=_ASYNC_TIMEOUT,
             )
@@ -281,6 +286,7 @@ class InterAgentBus:
                     success=True,
                     elapsed_seconds=time.time() - t0,
                     session_name=session_name,
+                    provider_switch_notice=provider_notice,
                 )
             )
 

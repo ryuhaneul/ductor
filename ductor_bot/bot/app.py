@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import html as html_mod
 import logging
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -26,6 +27,7 @@ from ductor_bot.bot.file_browser import (
 from ductor_bot.bot.formatting import markdown_to_telegram_html
 from ductor_bot.bot.handlers import (
     handle_abort,
+    handle_abort_all,
     handle_command,
     handle_new_session,
     strip_mention,
@@ -114,7 +116,7 @@ def _sanitize_cron_result_text(result: str) -> str:
 _HELP_TEXT = fmt(
     "**Command Reference**",
     SEP,
-    f"Daily\n{_help_line('new')}\n{_help_line('stop')}\n"
+    f"Daily\n{_help_line('new')}\n{_help_line('stop')}\n{_help_line('stop_all')}\n"
     f"{_help_line('model')}\n{_help_line('status')}\n{_help_line('memory')}",
     f"Automation\n{_help_line('session')}\n{_help_line('cron')}",
     f"Multi-Agent\n{_help_line('agent_commands')}",
@@ -140,6 +142,7 @@ class TelegramBot:
         self._config = config
         self._agent_name = agent_name
         self._orchestrator: Orchestrator | None = None
+        self._abort_all_callback: Callable[[], Awaitable[int]] | None = None
 
         self._bot = Bot(
             token=config.telegram_token,
@@ -159,6 +162,7 @@ class TelegramBot:
         self._sequential = SequentialMiddleware()
         self._sequential.set_bot(self._bot)
         self._sequential.set_abort_handler(self._on_abort)
+        self._sequential.set_abort_all_handler(self._on_abort_all)
         self._sequential.set_quick_command_handler(self._on_quick_command)
         auth = AuthMiddleware(allowed, group_mention_only=config.group_mention_only)
         self._router.message.outer_middleware(auth)
@@ -180,6 +184,10 @@ class TelegramBot:
     def orchestrator(self) -> Orchestrator | None:
         """Public read-only access to the orchestrator (None before startup)."""
         return self._orchestrator
+
+    def set_abort_all_callback(self, callback: Callable[[], Awaitable[int]]) -> None:
+        """Set a callback that kills processes on ALL agents (set by supervisor)."""
+        self._abort_all_callback = callback
 
     @property
     def dispatcher(self) -> Dispatcher:
@@ -262,21 +270,22 @@ class TelegramBot:
 
     def _register_handlers(self) -> None:
         r = self._router
-        r.message(CommandStart())(self._on_start)
-        r.message(Command("help"))(self._on_help)
-        r.message(Command("info"))(self._on_info)
-        r.message(Command("stop"))(self._on_stop)
-        r.message(Command("restart"))(self._on_restart)
-        r.message(Command("new"))(self._on_new)
-        r.message(Command("session"))(self._on_session)
-        r.message(Command("sessions"))(self._on_sessions)
-        r.message(Command("showfiles"))(self._on_showfiles)
-        r.message(Command("agent_commands"))(self._on_agent_commands)
+        r.message(CommandStart(ignore_case=True))(self._on_start)
+        r.message(Command("help", ignore_case=True))(self._on_help)
+        r.message(Command("info", ignore_case=True))(self._on_info)
+        r.message(Command("stop_all", ignore_case=True))(self._on_stop_all)
+        r.message(Command("stop", ignore_case=True))(self._on_stop)
+        r.message(Command("restart", ignore_case=True))(self._on_restart)
+        r.message(Command("new", ignore_case=True))(self._on_new)
+        r.message(Command("session", ignore_case=True))(self._on_session)
+        r.message(Command("sessions", ignore_case=True))(self._on_sessions)
+        r.message(Command("showfiles", ignore_case=True))(self._on_showfiles)
+        r.message(Command("agent_commands", ignore_case=True))(self._on_agent_commands)
         base_cmds = ["status", "memory", "model", "cron", "diagnose", "upgrade"]
         if self._agent_name == "main":
             base_cmds += ["agents", "agent_start", "agent_stop", "agent_restart"]
         for cmd in base_cmds:
-            r.message(Command(cmd))(self._on_command)
+            r.message(Command(cmd, ignore_case=True))(self._on_command)
         r.message()(self._on_message)
         r.callback_query()(self._on_callback_query)
 
@@ -449,6 +458,15 @@ class TelegramBot:
 
     # -- Abort, commands, sessions ---------------------------------------------
 
+    async def _on_abort_all(self, chat_id: int, message: Message) -> bool:
+        return await handle_abort_all(
+            self._orchestrator,
+            self._bot,
+            chat_id=chat_id,
+            message=message,
+            abort_all_callback=self._abort_all_callback,
+        )
+
     async def _on_abort(self, chat_id: int, message: Message) -> bool:
         return await handle_abort(
             self._orchestrator,
@@ -495,6 +513,15 @@ class TelegramBot:
 
         await handle_command(self._orchestrator, self._bot, message)
         return True
+
+    async def _on_stop_all(self, message: Message) -> None:
+        await handle_abort_all(
+            self._orchestrator,
+            self._bot,
+            chat_id=message.chat.id,
+            message=message,
+            abort_all_callback=self._abort_all_callback,
+        )
 
     async def _on_stop(self, message: Message) -> None:
         await handle_abort(
@@ -1176,6 +1203,15 @@ class TelegramBot:
             await send_rich(self._bot, chat_id, error_text, SendRichOpts(allowed_roots=roots))
             return
 
+        # Notify user about provider switch before processing the result
+        if result.provider_switch_notice:
+            await send_rich(
+                self._bot,
+                chat_id,
+                f"**Provider Switch Detected**\n\n{result.provider_switch_notice}",
+                SendRichOpts(allowed_roots=roots),
+            )
+
         # Run the orchestrator turn WITHOUT the chat lock so user messages
         # are not blocked while the async result is being processed.
         response_text = await self._orch.handle_async_interagent_result(
@@ -1341,16 +1377,30 @@ class TelegramBot:
         self, chat_id: int, message_id: int, data: str, *, thread_id: int | None = None
     ) -> None:
         """Fetch and display changelog for ``upg:cl:<version>``."""
+        from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
         from ductor_bot.infra.version import fetch_changelog
 
         version = data.split(":", 2)[2] if data.count(":") >= 2 else ""
         if not version:
             return
 
-        # Remove the changelog button to prevent repeated fetches
+        # Keep the original message but remove only the changelog button,
+        # preserving "Upgrade now" / "Later" so the user can still act.
+        upgrade_keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="Upgrade now",
+                        callback_data=f"upg:yes:{version}",
+                    ),
+                    InlineKeyboardButton(text="Later", callback_data="upg:no"),
+                ],
+            ],
+        )
         with contextlib.suppress(TelegramBadRequest):
             await self._bot.edit_message_reply_markup(
-                chat_id=chat_id, message_id=message_id, reply_markup=None
+                chat_id=chat_id, message_id=message_id, reply_markup=upgrade_keyboard
             )
 
         body = await fetch_changelog(version)
@@ -1363,12 +1413,28 @@ class TelegramBot:
             )
             return
 
+        # Send changelog with "Upgrade now" button underneath
+        changelog_keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="Upgrade now",
+                        callback_data=f"upg:yes:{version}",
+                    ),
+                    InlineKeyboardButton(text="Later", callback_data="upg:no"),
+                ],
+            ],
+        )
         roots = self._file_roots(self._orch.paths)
         await send_rich(
             self._bot,
             chat_id,
             f"**Changelog v{version}**\n\n{body}",
-            SendRichOpts(allowed_roots=roots, thread_id=thread_id),
+            SendRichOpts(
+                allowed_roots=roots,
+                reply_markup=changelog_keyboard,
+                thread_id=thread_id,
+            ),
         )
 
     async def _sync_commands(self) -> None:

@@ -283,6 +283,15 @@ class NamedSessionRegistry:
         ns.status = status
         self._persist()
 
+    def add(self, session: NamedSession) -> None:
+        """Add a pre-built session to the registry and persist.
+
+        Use this when the caller needs full control over the session name
+        and fields (e.g. inter-agent sessions with deterministic names).
+        """
+        self._sessions[(session.chat_id, session.name)] = session
+        self._persist()
+
     def active_names(self, chat_id: int) -> set[str]:
         """Return the set of active session names for collision checks."""
         return {
