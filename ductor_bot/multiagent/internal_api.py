@@ -59,19 +59,29 @@ class InternalAgentAPI:
     def port(self) -> int:
         return self._port
 
-    async def start(self) -> None:
-        """Start the internal API server."""
+    async def start(self) -> bool:
+        """Start the internal API server.
+
+        Returns:
+            True when the listener is active, False when bind/start fails.
+        """
         self._runner = web.AppRunner(self._app, access_log=None)
         await self._runner.setup()
         try:
             site = web.TCPSite(self._runner, self._bind_host, self._port)
             await site.start()
-            logger.info("Internal agent API listening on %s:%d", self._bind_host, self._port)
         except OSError:
             logger.exception(
                 "Failed to start internal agent API on port %d",
                 self._port,
             )
+            # Best effort cleanup so callers can safely retry/start-stop.
+            await self._runner.cleanup()
+            self._runner = None
+            return False
+        else:
+            logger.info("Internal agent API listening on %s:%d", self._bind_host, self._port)
+            return True
 
     async def stop(self) -> None:
         """Stop the internal API server."""

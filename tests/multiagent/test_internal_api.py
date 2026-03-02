@@ -240,3 +240,19 @@ class TestHandleHealth:
         assert data["agents"]["sub1"]["status"] == "crashed"
         assert data["agents"]["sub1"]["last_crash_error"] == "OOM"
         assert data["agents"]["sub1"]["restart_count"] == 1
+
+
+class TestLifecycle:
+    """Test InternalAgentAPI lifecycle return values."""
+
+    async def test_start_returns_false_on_bind_error(self, api: InternalAgentAPI) -> None:
+        from unittest.mock import patch
+
+        with patch(
+            "aiohttp.web.TCPSite.start",
+            new_callable=AsyncMock,
+            side_effect=OSError("bind failed"),
+        ):
+            started = await api.start()
+
+        assert started is False

@@ -46,6 +46,25 @@ class TestSupervisorInit:
         assert supervisor._agents_path == tmp_path / "agents.json"
 
 
+class TestStartupFailures:
+    """Test startup error propagation."""
+
+    async def test_internal_api_start_failure_is_propagated(
+        self,
+        supervisor: AgentSupervisor,
+    ) -> None:
+        with (
+            patch(
+                "ductor_bot.multiagent.internal_api.InternalAgentAPI.start",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch("ductor_bot.multiagent.supervisor.AgentStack.create", new_callable=AsyncMock),
+            pytest.raises(RuntimeError, match="Internal agent API failed to start"),
+        ):
+            await supervisor.start()
+
+
 class TestStopAgent:
     """Test stop_agent() behavior."""
 

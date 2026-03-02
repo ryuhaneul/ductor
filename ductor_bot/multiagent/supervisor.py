@@ -79,7 +79,10 @@ class AgentSupervisor:
             self._bus, docker_mode=self._main_config.docker.enabled
         )
         self._internal_api.set_health_ref(self._health)
-        await self._internal_api.start()
+        started = await self._internal_api.start()
+        if not started:
+            msg = "Internal agent API failed to start"
+            raise RuntimeError(msg)
         logger.info("InterAgentBus and internal API started")
 
         # 1. Start main agent
