@@ -508,19 +508,21 @@ class MatrixBot:
 
         buffer = [""]
         segment_count = [0]
-        clean = self._config.streaming.clean_intermediate
 
         async def _on_delta(delta: str) -> None:
             buffer[0] += delta
 
         async def _flush_and_tag(tag: str) -> None:
-            """Flush buffer, send a status tag, and re-set typing indicator."""
+            """Flush buffer and re-set typing indicator.
+
+            The *tag* (tool/system marker) is intentionally not sent to
+            keep the Matrix chat clean — only reasoning text and the
+            final summary are visible to the user.
+            """
             seg_text = buffer[0].strip()
             if seg_text:
                 await self._send_rich(room_id, buffer[0])
             buffer[0] = ""
-            if not clean:
-                await self._send_rich(room_id, tag)
             # Re-set typing indicator (sending messages clears it in Matrix)
             with contextlib.suppress(Exception):
                 await self._client.room_typing(
