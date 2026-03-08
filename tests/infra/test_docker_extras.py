@@ -177,6 +177,13 @@ class TestGenerateDockerfile:
         index_lines = [line for line in pip_lines if "--index-url" in line]
         assert len(index_lines) == 1
         assert "torch" in index_lines[0]
+        # Standard PyPI install should use constraints to prevent CUDA upgrades.
+        assert "idx-constraints.txt" in result
+
+    def test_no_constraints_without_custom_index(self) -> None:
+        extras = resolve_extras(["pandas", "scipy"])
+        result = generate_dockerfile_extras(_BASE, extras)
+        assert "idx-constraints" not in result
 
     def test_apt_packages_sorted_deduped(self) -> None:
         extras = [

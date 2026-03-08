@@ -135,6 +135,7 @@ DOCKER_EXTRAS: tuple[DockerExtra, ...] = (
         pip_packages=[
             "torch",
             "torchaudio",
+            "torchvision",
             "--index-url",
             "https://download.pytorch.org/whl/cpu",
         ],
@@ -245,11 +246,21 @@ def generate_dockerfile_extras(base_content: str, extras: list[DockerExtra]) -> 
     # Install packages with custom index URLs FIRST (e.g. PyTorch CPU) so
     # that later packages (easyocr, transformers) find the CPU-only version
     # instead of pulling the full CUDA variant from PyPI.
+    has_custom_index = any(url is not None for url in pip_groups)
     for index_url in sorted(pip_groups, key=lambda u: (u is None, u or "")):
         pkgs = pip_groups[index_url]
         pkg_joined = " ".join(pkgs)
         if index_url:
             lines.append(f"RUN pip install --no-cache-dir {pkg_joined} --index-url {index_url}")
+        elif has_custom_index:
+            # Pin packages from custom indexes via pip freeze so the standard
+            # PyPI install cannot upgrade them (prevents e.g. torch CPU being
+            # replaced by the full CUDA variant through transitive deps).
+            lines.append(
+                f"RUN pip freeze > /tmp/idx-constraints.txt \\\n"
+                f"    && pip install --no-cache-dir -c /tmp/idx-constraints.txt {pkg_joined} \\\n"
+                f"    && rm -f /tmp/idx-constraints.txt"
+            )
         else:
             lines.append(f"RUN pip install --no-cache-dir {pkg_joined}")
 
