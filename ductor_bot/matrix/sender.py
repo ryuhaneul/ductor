@@ -6,6 +6,7 @@ Handles formatted messages, file uploads, and message splitting.
 from __future__ import annotations
 
 import asyncio
+import io
 import logging
 import mimetypes
 import re
@@ -115,9 +116,9 @@ async def _upload_and_send_file(
     file_name = file_path.name
     file_size = len(file_data)
 
-    # Upload
+    # Upload — nio expects a file-like object, not raw bytes
     resp, _keys = await client.upload(
-        file_data,
+        io.BytesIO(file_data),
         content_type=mime_type,
         filename=file_name,
         filesize=file_size,
