@@ -1,20 +1,23 @@
-# bot/
+# messenger/telegram/
 
 Telegram interface layer (`aiogram`): handlers, middleware, callback routing, streaming UX, startup lifecycle.
 
 For the Matrix transport equivalent, see [matrix.md](matrix.md).
+For shared messenger protocols and the transport registry, see
+[messenger.md](messenger.md).
 
 ## Files
 
-- `bot/app.py`: `TelegramBot` class, handler registration, callback routing, group management commands
-- `bot/startup.py`: startup sequence (orchestrator creation, bus wiring, recovery, sentinels)
-- `bot/callbacks.py`: shared selector callback helpers (`SelectorResponse` editing)
-- `bot/middleware.py`: `AuthMiddleware`, `SequentialMiddleware`, queue controls, quick-command bypass
-- `bot/message_dispatch.py`: shared streaming/non-streaming execution paths
-- `bot/handlers.py`: command helper handlers (`/new`, `/stop`, generic command path)
-- `bot/chat_tracker.py`: persisted group chat activity (`chat_activity.json`) for `/where` and group audits
-- `bot/topic.py`: topic/session key helpers + topic-name cache
-- `bot/file_browser.py`, `bot/sender.py`, `bot/media.py`, `bot/welcome.py`, `bot/formatting.py`, `bot/typing.py`
+- `messenger/telegram/app.py`: `TelegramBot` class, handler registration, callback routing, group management commands
+- `messenger/telegram/startup.py`: startup sequence (orchestrator creation, bus wiring, recovery, sentinels)
+- `messenger/telegram/callbacks.py`: shared selector callback helpers (`SelectorResponse` editing)
+- `messenger/telegram/middleware.py`: `AuthMiddleware`, `SequentialMiddleware`, queue controls, quick-command bypass
+- `messenger/telegram/message_dispatch.py`: shared streaming/non-streaming execution paths
+- `messenger/telegram/handlers.py`: command helper handlers (`/new`, `/stop`, generic command path)
+- `messenger/telegram/chat_tracker.py`: persisted group chat activity (`chat_activity.json`) for `/where` and group audits
+- `messenger/telegram/topic.py`: topic/session key helpers + topic-name cache
+- `messenger/telegram/file_browser.py`, `messenger/telegram/sender.py`, `messenger/telegram/media.py`, `messenger/telegram/welcome.py`, `messenger/telegram/formatting.py`, `messenger/telegram/typing.py`
+- `messenger/telegram/transport.py`: Telegram transport adapter for `MessageBus`
 
 ## Command ownership
 
@@ -121,7 +124,7 @@ Special callback namespaces:
 - `ns:*` named-session follow-up callbacks
 - `sf:*` / `sf!` file browser
 
-Selector callbacks use shared helpers in `bot/callbacks.py` and selector response types from `orchestrator/selectors/models.py`.
+Selector callbacks use shared helpers in `messenger/telegram/callbacks.py` and selector response types from `orchestrator/selectors/models.py`.
 
 ## Observer and task integration
 
@@ -139,7 +142,7 @@ Webhook wake path:
 - runs orchestrator message flow
 - submits final wake result envelope for delivery
 
-## Startup lifecycle (`bot/startup.py`)
+## Startup lifecycle (`messenger/telegram/startup.py`)
 
 Startup performs, in order:
 
@@ -155,4 +158,4 @@ Startup performs, in order:
 ## File safety
 
 Outbound file sends enforce `file_access` via `files.allowed_roots.resolve_allowed_roots(...)`.
-`sender.py` uses shared MIME/tag helpers from `files/`.
+`messenger/telegram/sender.py` uses shared MIME/tag helpers from `files/`.

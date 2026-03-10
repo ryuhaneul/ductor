@@ -52,6 +52,10 @@ On first run, onboarding does:
 - offers service install,
 - writes config and seeds `~/.ductor/`.
 
+Multiple transports can run in parallel (e.g. Telegram + Matrix
+simultaneously). After initial setup, configure the `transports` array
+in `config.json`. See [config.md](config.md) for details.
+
 If service install succeeds, onboarding returns without starting foreground bot.
 
 ## Platform notes

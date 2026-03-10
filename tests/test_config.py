@@ -28,7 +28,7 @@ def test_agent_config_defaults() -> None:
     assert cfg.model == "opus"
     assert cfg.idle_timeout_minutes == 1440
     assert cfg.daily_reset_hour == 4
-    assert cfg.cli_timeout == 600.0
+    assert cfg.cli_timeout == 1800.0
     assert cfg.permission_mode == "bypassPermissions"
     assert cfg.gemini_api_key is None
     assert cfg.telegram_token == ""
@@ -131,3 +131,50 @@ def test_docker_config_fields() -> None:
     d = DockerConfig(enabled=True, image_name="custom")
     assert d.enabled is True
     assert d.image_name == "custom"
+
+
+# -- AgentConfig transports normalization --
+
+
+def test_transport_backward_compat_populates_transports() -> None:
+    """Legacy single ``transport`` field fills ``transports`` list."""
+    cfg = AgentConfig(transport="telegram")
+    assert cfg.transports == ["telegram"]
+    assert cfg.transport == "telegram"
+
+
+def test_transport_matrix_backward_compat() -> None:
+    """transport='matrix' with empty transports normalizes correctly."""
+    cfg = AgentConfig(transport="matrix")
+    assert cfg.transports == ["matrix"]
+    assert cfg.transport == "matrix"
+
+
+def test_transports_multi_sets_primary_transport() -> None:
+    """Explicit multi-transport sets ``transport`` to first entry."""
+    cfg = AgentConfig(transports=["telegram", "matrix"])
+    assert cfg.transports == ["telegram", "matrix"]
+    assert cfg.transport == "telegram"
+
+
+def test_transports_multi_reversed_order() -> None:
+    """Primary transport is always the first in the list."""
+    cfg = AgentConfig(transports=["matrix", "telegram"])
+    assert cfg.transport == "matrix"
+
+
+def test_is_multi_transport_single() -> None:
+    cfg = AgentConfig(transport="telegram")
+    assert cfg.is_multi_transport is False
+
+
+def test_is_multi_transport_multiple() -> None:
+    cfg = AgentConfig(transports=["telegram", "matrix"])
+    assert cfg.is_multi_transport is True
+
+
+def test_transports_default_is_telegram() -> None:
+    """Default AgentConfig has transports=['telegram']."""
+    cfg = AgentConfig()
+    assert cfg.transports == ["telegram"]
+    assert cfg.is_multi_transport is False

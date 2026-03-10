@@ -44,6 +44,8 @@ Covers `ductor` command behavior, onboarding flow, and lifecycle commands.
 2. provider install/auth check
 3. disclaimer
 4. **transport selection** (Telegram or Matrix)
+   - After initial setup, multiple transports can run in parallel via
+     the `transports` array in `config.json` (see [config.md](../config.md))
 5. transport-specific credentials:
    - Telegram: bot token prompt + user ID prompt
    - Matrix: homeserver URL + bot user ID + password + allowed users

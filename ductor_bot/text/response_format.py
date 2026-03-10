@@ -124,21 +124,6 @@ def timeout_result_text(elapsed: float, configured: float) -> str:
     )
 
 
-TIMEOUT_ERROR_TEXT = fmt(
-    "**Timeout**",
-    SEP,
-    "[{model}] CLI was terminated after {minutes} min.\n"
-    "Your session has been preserved -- send another message to continue where it left off.\n"
-    "Use /new to start a fresh session.",
-)
-
-
-def timeout_error_text(model: str, timeout_seconds: float) -> str:
-    """Build the error message shown when the CLI times out (session preserved)."""
-    minutes = int(timeout_seconds / 60)
-    return TIMEOUT_ERROR_TEXT.format(model=model, minutes=minutes)
-
-
 # -- Startup lifecycle messages --
 
 

@@ -242,6 +242,56 @@ class TestIsConfiguredExtended:
             assert _is_configured() is False
 
 
+class TestIsConfiguredMultiTransport:
+    def test_configured_multi_transport_both_valid(self, tmp_path: Path) -> None:
+        from ductor_bot.__main__ import _is_configured
+
+        paths = _make_paths(tmp_path)
+        _write_config(
+            paths,
+            {
+                "transports": ["telegram", "matrix"],
+                "telegram_token": "123:ABC",
+                "allowed_user_ids": [1],
+                "matrix": {"homeserver": "https://mx.test", "user_id": "@bot:test"},
+            },
+        )
+        with patch("ductor_bot.__main__.resolve_paths", return_value=paths):
+            assert _is_configured() is True
+
+    def test_unconfigured_multi_transport_missing_matrix(self, tmp_path: Path) -> None:
+        from ductor_bot.__main__ import _is_configured
+
+        paths = _make_paths(tmp_path)
+        _write_config(
+            paths,
+            {
+                "transports": ["telegram", "matrix"],
+                "telegram_token": "123:ABC",
+                "allowed_user_ids": [1],
+                "matrix": {},
+            },
+        )
+        with patch("ductor_bot.__main__.resolve_paths", return_value=paths):
+            assert _is_configured() is False
+
+    def test_unconfigured_multi_transport_missing_telegram(self, tmp_path: Path) -> None:
+        from ductor_bot.__main__ import _is_configured
+
+        paths = _make_paths(tmp_path)
+        _write_config(
+            paths,
+            {
+                "transports": ["telegram", "matrix"],
+                "telegram_token": "",
+                "allowed_user_ids": [],
+                "matrix": {"homeserver": "https://mx.test", "user_id": "@bot:test"},
+            },
+        )
+        with patch("ductor_bot.__main__.resolve_paths", return_value=paths):
+            assert _is_configured() is False
+
+
 class TestStopBot:
     def test_stop_kills_running_process(self, tmp_path: Path) -> None:
         from ductor_bot.cli_commands.lifecycle import stop_bot

@@ -15,7 +15,10 @@ One Python process hosts:
 
 Each agent stack contains:
 
-- Transport bot (`TelegramBot` or `MatrixBot`, selected via `config.transport`)
+- Transport bot (`TelegramBot` or `MatrixBot`, selected via
+  `config.transport`; `MultiBotAdapter` enables parallel
+  multi-transport execution when `config.transports` lists
+  multiple entries)
 - `Orchestrator` (routing + flows)
 - `CLIService` (provider wrappers)
 - provider subprocesses (`claude`, `codex`, `gemini`)
@@ -127,7 +130,7 @@ Sub-agent home: `~/.ductor/agents/<name>/` with its own config/workspace/session
 1. `ductor_bot/__main__.py` (entrypoint + config/load/run)
 2. `ductor_bot/cli_commands/` (actual CLI subcommand logic)
 3. `ductor_bot/multiagent/supervisor.py` (always-on runtime wrapper)
-4. `ductor_bot/bot/app.py` + `bot/startup.py` (Telegram), `ductor_bot/matrix/bot.py` (Matrix)
+4. `ductor_bot/messenger/telegram/app.py` + `messenger/telegram/startup.py` (Telegram), `ductor_bot/messenger/matrix/bot.py` (Matrix)
 5. `ductor_bot/orchestrator/core.py` + `orchestrator/lifecycle.py`
 6. `ductor_bot/bus/*` (unified delivery/injection)
 7. `ductor_bot/tasks/hub.py` + `tasks/registry.py`

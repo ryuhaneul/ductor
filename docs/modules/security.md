@@ -50,6 +50,6 @@ Violation raises `PathValidationError`.
 
 Current call sites:
 
-- Telegram file send path (`bot/sender.py`)
+- Telegram file send path (`messenger/telegram/sender.py`)
 - API file download endpoint (`api/server.py`)
-- file-browser directory navigation guard (`bot/file_browser.py`)
+- file-browser directory navigation guard (`messenger/telegram/file_browser.py`)

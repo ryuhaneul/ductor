@@ -71,9 +71,14 @@ def _is_configured() -> bool:
     except (json.JSONDecodeError, OSError):
         return False
 
-    transport = data.get("transport", "telegram")
-    checker = _IS_CONFIGURED_CHECKS.get(transport, _is_configured_telegram)
-    return checker(data)
+    transports = data.get("transports", [])
+    if not transports:
+        transports = [data.get("transport", "telegram")]
+    for t in transports:
+        checker = _IS_CONFIGURED_CHECKS.get(t, _is_configured_telegram)
+        if not checker(data):
+            return False
+    return True
 
 
 def _is_configured_telegram(data: dict[str, object]) -> bool:
@@ -155,6 +160,14 @@ def load_config() -> AgentConfig:
 # ---------------------------------------------------------------------------
 
 
+def _validate_transports(config: AgentConfig) -> None:
+    """Run transport-specific config validators for all active transports."""
+    for t in config.transports:
+        validator = _TRANSPORT_VALIDATORS.get(t)
+        if validator:
+            validator(config)
+
+
 async def run_bot(config: AgentConfig) -> int:
     """Validate config and run the bot via AgentSupervisor.
 
@@ -165,10 +178,7 @@ async def run_bot(config: AgentConfig) -> int:
     Returns the exit code from the bot (``0`` = clean, ``42`` = restart requested).
     """
     paths = resolve_paths(ductor_home=config.ductor_home)
-
-    validator = _TRANSPORT_VALIDATORS.get(config.transport)
-    if validator:
-        validator(config)
+    _validate_transports(config)
 
     from ductor_bot.infra.pidlock import acquire_lock, release_lock
     from ductor_bot.multiagent.supervisor import AgentSupervisor
@@ -233,7 +243,9 @@ def _validate_matrix_config(config: AgentConfig) -> None:
         _console.print(f"[bold yellow]Matrix user_id is required.{hint}[/bold yellow]")
         sys.exit(1)
     if not m.password and not m.access_token:
-        _console.print(f"[bold yellow]Matrix password or access_token is required.{hint}[/bold yellow]")
+        _console.print(
+            f"[bold yellow]Matrix password or access_token is required.{hint}[/bold yellow]"
+        )
         sys.exit(1)
     if not m.allowed_rooms and not m.allowed_users:
         _console.print(

@@ -1,25 +1,27 @@
-# matrix/
+# messenger/matrix/
 
 Matrix/Element transport layer (`matrix-nio`): message handling, streaming, buttons, formatting, credentials.
 
 Alternative to the Telegram transport — selected via `config.transport = "matrix"`.
+For shared messenger protocols and the transport registry, see
+[messenger.md](messenger.md).
 
 ## Files
 
-- `matrix/bot.py`: `MatrixBot` class implementing `BotProtocol`; message ingestion, command routing, authorization, streaming
-- `matrix/transport.py`: `MatrixTransport` adapter for `MessageBus`; maps envelopes to Matrix room messages
-- `matrix/sender.py`: message formatting and sending; Markdown→HTML, file upload, message splitting, redaction helpers
-- `matrix/credentials.py`: login flow (saved credentials → config token → password login)
-- `matrix/id_map.py`: bidirectional `room_id` ↔ `int` mapping (deterministic SHA256)
-- `matrix/buttons.py`: reaction-based button replacement; emoji digits + numbered text fallback
-- `matrix/formatting.py`: Markdown → Matrix HTML conversion
-- `matrix/typing.py`: typing indicator context manager with periodic keep-alive (5s interval)
-- `matrix/media.py`: incoming media handler; downloads files from homeserver, builds agent prompts via `files/prompt.py`
-- `matrix/startup.py`: Matrix-specific startup (orchestrator, observers, restart sentinel)
+- `messenger/matrix/bot.py`: `MatrixBot` class implementing `BotProtocol`; message ingestion, command routing, authorization, streaming
+- `messenger/matrix/transport.py`: `MatrixTransport` adapter for `MessageBus`; maps envelopes to Matrix room messages
+- `messenger/matrix/sender.py`: message formatting and sending; Markdown→HTML, file upload, message splitting, redaction helpers
+- `messenger/matrix/credentials.py`: login flow (saved credentials → config token → password login)
+- `messenger/matrix/id_map.py`: bidirectional `room_id` ↔ `int` mapping (deterministic SHA256)
+- `messenger/matrix/buttons.py`: reaction-based button replacement; emoji digits + numbered text fallback
+- `messenger/matrix/formatting.py`: Markdown → Matrix HTML conversion
+- `messenger/matrix/typing.py`: typing indicator context manager with periodic keep-alive (5s interval)
+- `messenger/matrix/media.py`: incoming media handler; downloads files from homeserver, builds agent prompts via `files/prompt.py`
+- `messenger/matrix/startup.py`: Matrix-specific startup (orchestrator, observers, restart sentinel)
 
 ## Incoming media
 
-Matrix media (images, audio, video, files) is handled by `matrix/media.py`:
+Matrix media (images, audio, video, files) is handled by `messenger/matrix/media.py`:
 
 1. `MatrixBot` registers `_on_media` callbacks for `RoomMessageImage`, `RoomMessageAudio`, `RoomMessageVideo`, `RoomMessageFile`
 2. `resolve_matrix_media()` downloads the file via `client.download(mxc=...)` to `workspace/matrix_files/YYYY-MM-DD/`

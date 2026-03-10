@@ -2,7 +2,7 @@ This file gives coding agents a current map of the repository.
 
 ## Project Overview
 
-ductor is a Telegram bot that routes chat input to official provider CLIs (`claude`, `codex`, `gemini`), streams responses back to Telegram, persists per-chat state, and runs cron/webhook/heartbeat automation in-process.
+ductor is a messaging bot that routes chat input to official provider CLIs (`claude`, `codex`, `gemini`), streams responses back via Telegram or Matrix, persists per-chat state, and runs cron/webhook/heartbeat automation in-process.
 
 Stack:
 
@@ -24,7 +24,7 @@ ductor -v
 
 # Tests
 pytest
-pytest tests/bot/test_app.py
+pytest tests/messenger/telegram/test_app.py
 pytest -k "pattern"
 
 # Quality
@@ -39,7 +39,7 @@ mypy ductor_bot
 Telegram Update
   -> AuthMiddleware
   -> SequentialMiddleware (queue + per-chat lock)
-  -> TelegramBot handlers
+  -> TelegramBot handlers (messenger/telegram/)
   -> Orchestrator
   -> CLIService
   -> provider subprocess (claude/codex/gemini)
@@ -50,7 +50,9 @@ Telegram Update
 
 | Module | Purpose |
 |---|---|
-| `bot/` | Telegram handlers, callback routing, streaming delivery, queue UX |
+| `messenger/` | Transport-agnostic protocols, capabilities, notifications, registry |
+| `messenger/telegram/` | Telegram transport: handlers, streaming, inline keyboards, queue UX |
+| `messenger/matrix/` | Matrix transport: segment streaming, reaction buttons |
 | `orchestrator/` | command registry, directives/hooks, flow routing, observer wiring |
 | `cli/` | provider wrappers, stream parsing, auth checks, process registry, model caches |
 | `session/` | chat sessions with provider-isolated buckets |

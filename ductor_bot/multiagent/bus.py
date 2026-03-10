@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ductor_bot.multiagent.stack import AgentStack
-    from ductor_bot.notifications import NotificationService
 
 logger = logging.getLogger(__name__)
 

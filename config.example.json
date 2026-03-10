@@ -16,6 +16,7 @@
     "gemini_api_key": "null",
     "user_timezone": "",
     "transport": "telegram",
+    "transports": [],
     "telegram_token": "YOUR_BOT_TOKEN_HERE",
     "allowed_user_ids": [],
     "allowed_group_ids": [],

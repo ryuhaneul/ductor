@@ -90,7 +90,7 @@ Status-callback nuance:
 
 - `TimeoutController` warning/extension callbacks are not currently wired to emit `SystemStatusEvent`s, so UI labels like `timeout_warning`/`timeout_extended` depend on future callback wiring.
 
-`bot/message_dispatch.py` wraps delta delivery with `StreamCoalescer` (`coalescer.py`) so Telegram edits flush at readable boundaries (paragraph/sentence/idle/full flush).
+`messenger/telegram/message_dispatch.py` wraps delta delivery with `StreamCoalescer` (`coalescer.py`) so Telegram edits flush at readable boundaries (paragraph/sentence/idle/full flush).
 
 Session recovery is orchestrator-managed (`flows._recover_session`), not CLIService-managed.
 

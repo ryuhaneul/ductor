@@ -8,7 +8,7 @@ Unified result-delivery layer for observers, async inter-agent responses, and ta
 - `bus/bus.py`: `MessageBus` coordinator (`submit`, lock/inject/deliver pipeline)
 - `bus/lock_pool.py`: shared per-session lock pool (`(chat_id, topic_id)`)
 - `bus/adapters.py`: conversion helpers from domain results to `Envelope`
-- `bus/telegram_transport.py`: Telegram transport adapter + origin-specific formatting
+- `messenger/telegram/transport.py`: Telegram transport adapter + origin-specific formatting
 
 ## Why this module exists
 
@@ -44,7 +44,7 @@ Lock key: `envelope.lock_key -> (chat_id, topic_id)`.
 5. run optional pre-delivery hook
 6. fan-out delivery to all registered transports
 
-Registered transports: `TelegramTransport` and `MatrixTransport`.
+Registered transports: `TelegramTransport`, `MatrixTransport`.
 
 ## Adapter mapping (`adapters.py`)
 

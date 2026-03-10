@@ -55,8 +55,8 @@ Builds standardized `[INCOMING FILE]` prompt blocks for agent input.
 
 ## Integration points
 
-- Telegram media ingest/send: `bot/media.py`, `bot/sender.py`, `bot/app.py`
-- Matrix media ingest: `matrix/media.py`, `matrix/bot.py`
+- Telegram media ingest/send: `messenger/telegram/media.py`, `messenger/telegram/sender.py`, `messenger/telegram/app.py`
+- Matrix media ingest: `messenger/matrix/media.py`, `messenger/matrix/bot.py`
 - API upload/download and file-ref extraction: `api/server.py`
 - API startup file-context wiring: `orchestrator/lifecycle.py`
 

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/PleasePrompto/ductor/main/ductor_bot/bot/ductor_images/logo_text.png" alt="ductor" width="100%" />
+  <img src="https://raw.githubusercontent.com/PleasePrompto/ductor/main/ductor_bot/messenger/telegram/ductor_images/logo_text.png" alt="ductor" width="100%" />
 </p>
 
 <p align="center">
@@ -68,7 +68,10 @@ This single chat is all you need. Everything else below is optional.
 
 ### 2. Groups with topics (multiple isolated chats)
 
-Create a Telegram group, enable topics (forum mode), and add your bot. Now every topic becomes its own isolated chat with its own CLI context.
+**Telegram:** Create a group, enable topics (forum mode), and add your bot.
+**Matrix:** Invite the bot to multiple rooms — each room is its own context.
+
+Every topic (Telegram) or room (Matrix) becomes an isolated chat with its own CLI context.
 
 ```text
 Group: "My Projects"
@@ -85,7 +88,10 @@ Each topic can use a different model. Run `/model` inside a topic to change just
 
 All chats share the same `~/.ductor/` workspace — same tools, same memory, same files. The only thing isolated is the conversation context.
 
-> **Note:** The Telegram Bot API has no method to list existing forum topics. ductor learns topic names from `forum_topic_created` and `forum_topic_edited` events — so only topics created or renamed while the bot is in the group are known by name. Pre-existing topics show as "Topic #N" until they are edited. This is a Telegram limitation, not a ductor limitation.
+> **Telegram note:** The Bot API has no method to list existing forum topics.
+> ductor learns topic names from `forum_topic_created` and `forum_topic_edited`
+> events — pre-existing topics show as "Topic #N" until renamed.
+> This is a Telegram limitation, not a ductor limitation.
 
 ### 3. Named sessions (extra contexts within any chat)
 
@@ -124,7 +130,7 @@ Each task gets its own memory file (`TASKMEMORY.md`) and can be resumed with fol
 
 ### 5. Sub-agents (fully isolated second agent)
 
-Sub-agents are completely separate bots — own Telegram chat, own workspace, own memory, own CLI auth, own config settings (heartbeat, timeouts, model defaults, etc.). Like having ductor installed twice on different machines.
+Sub-agents are completely separate bots — own chat, own workspace, own memory, own CLI auth, own config settings (heartbeat, timeouts, model defaults, etc.). Each sub-agent can use a different transport (e.g. main on Telegram, sub-agent on Matrix).
 
 ```bash
 ductor agents add codex-agent    # creates a new bot (needs its own BotFather token)
@@ -180,7 +186,8 @@ Main chat:  "Ask codex-agent to write tests for the API"
 
 ## Features
 
-- **Real-time streaming** — live Telegram message edits as the CLI produces output
+- **Multi-transport** — run Telegram and Matrix simultaneously, or pick one
+- **Real-time streaming** — live message edits (Telegram) or segment-based output (Matrix)
 - **Provider switching** — `/model` to change provider/model, `@model` directives for inline targeting
 - **Persistent memory** — plain Markdown files that survive across sessions
 - **Cron jobs** — in-process scheduler with timezone support, per-job overrides, quiet hours
@@ -190,6 +197,41 @@ Main chat:  "Ask codex-agent to write tests for the API"
 - **Docker sandbox** — optional sidecar container with configurable host mounts
 - **Service manager** — Linux (systemd), macOS (launchd), Windows (Task Scheduler)
 - **Cross-tool skill sync** — shared skills across `~/.claude/`, `~/.codex/`, `~/.gemini/`
+
+## Supported messengers
+
+| Messenger | Status | Streaming | Buttons | Install |
+|---|---|---|---|---|
+| **Telegram** | stable | Live message edits | Inline keyboards | `pip install ductor` |
+| **Matrix** | stable | Segment-based (new messages) | Emoji reactions | `pip install ductor[matrix]` |
+
+Both transports can run **in parallel** on the same agent. Configure one or both:
+
+```json
+{"transport": "telegram"}
+{"transport": "matrix"}
+{"transports": ["telegram", "matrix"]}
+```
+
+### Modular transport system
+
+Each messenger is a self-contained module under `messenger/<name>/` that implements
+a shared `BotProtocol`. The core (orchestrator, sessions, CLI, cron, etc.) is
+completely transport-agnostic — it never knows which messenger delivered the message.
+
+```text
+messenger/
+  protocol.py              # BotProtocol interface
+  capabilities.py          # What each transport supports
+  registry.py              # Transport factory
+  multi.py                 # MultiBotAdapter (parallel transports)
+  telegram/                # Telegram implementation
+  matrix/                  # Matrix implementation
+```
+
+Adding a new messenger (Discord, Slack, Signal, ...) means implementing `BotProtocol`
+in a new sub-package and registering it in the factory — the rest of ductor works
+without changes. Step-by-step guide: [`docs/modules/messenger.md`](docs/modules/messenger.md)
 
 ## Auth
 

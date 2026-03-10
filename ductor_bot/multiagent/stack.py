@@ -11,7 +11,7 @@ from ductor_bot.workspace.init import init_workspace
 from ductor_bot.workspace.paths import DuctorPaths, resolve_paths
 
 if TYPE_CHECKING:
-    from ductor_bot.bot.protocol import BotProtocol
+    from ductor_bot.messenger.protocol import BotProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ class AgentStack:
         paths = resolve_paths(ductor_home=config.ductor_home)
         await asyncio.to_thread(init_workspace, paths)
 
-        from ductor_bot.transport_registry import create_bot
+        from ductor_bot.messenger.registry import create_bot
 
         bot = create_bot(config, agent_name=name)
 

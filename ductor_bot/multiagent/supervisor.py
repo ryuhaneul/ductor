@@ -32,6 +32,8 @@ def _config_changed(new: AgentConfig, old: AgentConfig) -> bool:
     """Detect meaningful config changes that require agent restart."""
     if new.transport != old.transport:
         return True
+    if new.transports != old.transports:
+        return True
     return _TRANSPORT_IDENTITY_CHANGED.get(new.transport, _default_identity_check)(new, old)
 
 
@@ -40,10 +42,12 @@ def _telegram_identity_check(new: AgentConfig, old: AgentConfig) -> bool:
 
 
 def _matrix_identity_check(new: AgentConfig, old: AgentConfig) -> bool:
-    return new.matrix.homeserver != old.matrix.homeserver or new.matrix.user_id != old.matrix.user_id
+    return (
+        new.matrix.homeserver != old.matrix.homeserver or new.matrix.user_id != old.matrix.user_id
+    )
 
 
-def _default_identity_check(new: AgentConfig, old: AgentConfig) -> bool:
+def _default_identity_check(_new: AgentConfig, _old: AgentConfig) -> bool:
     return False
 
 

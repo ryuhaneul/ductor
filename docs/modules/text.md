@@ -22,13 +22,13 @@ Shared user-facing response text helpers used across bot and orchestrator layers
 
 ## Integration points
 
-- `bot/handlers.py`: `/new`, `/stop`
-- `bot/app.py`: help/info/restart and various user-facing blocks
-- `bot/file_browser.py`, `bot/welcome.py`
+- `messenger/telegram/handlers.py`: `/new`, `/stop`
+- `messenger/telegram/app.py`: help/info/restart and various user-facing blocks
+- `messenger/telegram/file_browser.py`, `messenger/telegram/welcome.py`
 - `orchestrator/commands.py`: `/status`, `/memory`, `/diagnose`, `/upgrade`, etc.
 - `orchestrator/flows.py`: session error rendering and timeout-facing text
 - `orchestrator/selectors/cron_selector.py`: cron selector text blocks
-- `bot/message_dispatch.py`: maps timeout status labels when emitted
+- `messenger/telegram/message_dispatch.py`: maps timeout status labels when emitted
 
 ## Behavior notes
 

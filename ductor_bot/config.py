@@ -265,6 +265,7 @@ class AgentConfig(BaseModel):
     group_mention_only: bool = False
     interagent_port: int = 8799
     transport: str = "telegram"  # "telegram" | "matrix"
+    transports: list[str] = Field(default_factory=list)
     telegram_token: str = ""
     allowed_user_ids: list[int] = Field(default_factory=list)
     allowed_group_ids: list[int] = Field(default_factory=list)
@@ -291,6 +292,24 @@ class AgentConfig(BaseModel):
         if self.cli_timeout != 600.0 and self.timeouts.normal == 600.0:
             self.timeouts.normal = self.cli_timeout
         return self
+
+    @model_validator(mode="after")
+    def _normalize_transports(self) -> AgentConfig:
+        """Normalize ``transports`` and ``transport`` for backward compat.
+
+        - Empty ``transports`` → populated from ``transport`` (single-transport).
+        - Non-empty ``transports`` → ``transport`` set to first entry (primary).
+        """
+        if not self.transports:
+            self.transports = [self.transport]
+        else:
+            self.transport = self.transports[0]
+        return self
+
+    @property
+    def is_multi_transport(self) -> bool:
+        """True when more than one transport is configured."""
+        return len(self.transports) > 1
 
 
 def resolve_timeout(config: AgentConfig, path: str) -> float:

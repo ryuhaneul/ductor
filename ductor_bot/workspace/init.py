@@ -519,9 +519,7 @@ def inject_runtime_environment(
         # Avoid duplicate injection on restart without workspace re-init
         if "## Multi-Agent Identity" in content or "## Runtime Environment" in content:
             continue
-        atomic_text_save(
-            target, content + transport_notice + identity_notice + env_notice
-        )
+        atomic_text_save(target, content + transport_notice + identity_notice + env_notice)
     logger.info(
         "Runtime environment injected: %s agent=%s transport=%s",
         "docker" if docker_container else "host",

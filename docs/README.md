@@ -11,7 +11,7 @@ ductor routes chat input to official provider CLIs (`claude`, `codex`, `gemini`)
 5. `docs/config.md` -- config schema, merge behavior, hot-reload boundaries.
 6. `docs/modules/config_reload.md` -- runtime config reload details.
 7. `docs/modules/orchestrator.md` -- routing core, flows, selectors, lifecycle split.
-8. `docs/modules/bot.md` -- Telegram ingress, middleware, topic routing, chat tracking.
+8. `docs/modules/bot.md` -- Telegram transport (messenger/telegram/), middleware, topic routing.
 9. `docs/modules/bus.md` -- unified Envelope/MessageBus delivery architecture.
 10. `docs/modules/session.md` -- `SessionKey(chat_id, topic_id)` isolation model.
 11. `docs/modules/tasks.md` -- delegated task system (`TaskHub`) and `/tasks/*` API.
@@ -26,9 +26,11 @@ ductor routes chat input to official provider CLIs (`claude`, `codex`, `gemini`)
 
 - `ductor_bot/__main__.py`: thin CLI entrypoint (dispatch) + config loading.
 - `ductor_bot/cli_commands/`: concrete CLI subcommand implementations (`agents`, `docker`, `service`, `api`, lifecycle/status helpers).
-- `ductor_bot/bot/`: aiogram handlers, auth/sequencing middleware, streaming dispatch, callback routing, group audit/chat tracking.
+- `ductor_bot/messenger/`: transport-agnostic protocols, capabilities, notifications, registry.
+- `ductor_bot/messenger/telegram/`: aiogram handlers, auth/sequencing middleware, streaming dispatch, callback routing, group audit/chat tracking.
+- `ductor_bot/messenger/matrix/`: matrix-nio handlers, segment streaming, reaction buttons, formatting.
 - `ductor_bot/orchestrator/`: command registry, directives/hooks, normal + streaming + heartbeat flows, provider/session/task wiring.
-- `ductor_bot/bus/`: central `MessageBus` + `Envelope` + `LockPool` + Telegram transport formatting.
+- `ductor_bot/bus/`: central `MessageBus` + `Envelope` + `LockPool`.
 - `ductor_bot/session/`: provider-isolated session state keyed by `SessionKey(chat_id, topic_id)` plus named-session registry.
 - `ductor_bot/tasks/`: shared background task delegation (`TaskHub`) and persistent task registry.
 - `ductor_bot/api/`: WebSocket ingress (`/ws`) and HTTP file endpoints (`/files`, `/upload`).
@@ -57,8 +59,9 @@ Runtime behavior notes:
   - [setup_wizard](modules/setup_wizard.md)
   - [cli_commands](modules/cli_commands.md)
   - [config_reload](modules/config_reload.md)
-  - [bot](modules/bot.md)
-  - [matrix](modules/matrix.md)
+  - [messenger](modules/messenger.md)
+  - [messenger/telegram](modules/bot.md)
+  - [messenger/matrix](modules/matrix.md)
   - [bus](modules/bus.md)
   - [background](modules/background.md)
   - [session](modules/session.md)

@@ -82,6 +82,7 @@ Changes take effect on the next CLI invocation (mtime-based cache invalidation, 
 | `file_access` | `str` | `"all"` | File access scope (`all`, `home`, `workspace`) for file sends and API `GET /files`; unknown values fall back to workspace-only |
 | `gemini_api_key` | `str \| None` | `None` | Config fallback key injected for Gemini API-key mode |
 | `transport` | `str` | `"telegram"` | Messaging transport: `"telegram"` or `"matrix"` |
+| `transports` | `list[str]` | `[]` | List of transports to run in parallel (e.g. `["telegram", "matrix"]`). When empty, falls back to single `transport` value. |
 | `telegram_token` | `str` | `""` | Telegram bot token (required when `transport=telegram`) |
 | `allowed_user_ids` | `list[int]` | `[]` | Telegram user allowlist (applies in both private and group chats) |
 | `allowed_group_ids` | `list[int]` | `[]` | Telegram group allowlist (which groups the bot can operate in; default `[]` = no groups, fail-closed). In groups, both the group and the user must be allowlisted |
@@ -96,6 +97,15 @@ Changes take effect on the next CLI invocation (mtime-based cache invalidation, 
 | `cli_parameters` | `CLIParametersConfig` | see below | Provider-specific extra CLI flags |
 | `timeouts` | `TimeoutConfig` | see below | Path-specific timeout policy (`normal`, `background`, `subagent`) |
 | `tasks` | `TasksConfig` | see below | Delegated background task system (`TaskHub`) |
+
+### Multi-transport behavior
+
+When `transports` is empty (default), the single `transport` value
+is used. When `transports` contains multiple entries (e.g.
+`["telegram", "matrix"]`), `MultiBotAdapter` starts all listed
+transports in parallel and `transport` is auto-set to the first
+entry. A model validator normalizes both fields at load time so
+they stay consistent.
 
 ## `MatrixConfig`
 

@@ -79,8 +79,8 @@ Entry + command layer:
 Runtime hot path:
 
 - `ductor_bot/multiagent/supervisor.py`
-- `ductor_bot/bot/app.py`
-- `ductor_bot/bot/startup.py`
+- `ductor_bot/messenger/telegram/app.py`
+- `ductor_bot/messenger/telegram/startup.py`
 - `ductor_bot/orchestrator/core.py`
 - `ductor_bot/orchestrator/lifecycle.py`
 - `ductor_bot/orchestrator/flows.py`
@@ -109,22 +109,22 @@ If command behavior is wrong:
 
 If Telegram routing is wrong:
 
-1. `ductor_bot/bot/middleware.py`
-2. `ductor_bot/bot/app.py`
+1. `ductor_bot/messenger/telegram/middleware.py`
+2. `ductor_bot/messenger/telegram/app.py`
 3. `ductor_bot/orchestrator/commands.py`
 4. `ductor_bot/orchestrator/flows.py`
 
 If Matrix routing is wrong:
 
-1. `ductor_bot/matrix/bot.py`
-2. `ductor_bot/matrix/transport.py`
+1. `ductor_bot/messenger/matrix/bot.py`
+2. `ductor_bot/messenger/matrix/transport.py`
 3. `ductor_bot/orchestrator/flows.py`
 
 If background results look wrong:
 
 1. `ductor_bot/bus/adapters.py`
 2. `ductor_bot/bus/bus.py`
-3. `ductor_bot/bus/telegram_transport.py` (or `ductor_bot/matrix/transport.py`)
+3. `ductor_bot/messenger/telegram/transport.py` (or `ductor_bot/messenger/matrix/transport.py`)
 
 If tasks are wrong:
 

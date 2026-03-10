@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import NoReturn
+from typing import NoReturn, TypedDict
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import questionary
@@ -308,7 +308,9 @@ def _ask_matrix_user_id(console: Console) -> str:
         uid = uid.strip()
         if _MATRIX_USER_RE.match(uid):
             return uid
-        console.print("[red]Invalid format. Expected: @localpart:domain (e.g. @mybot:matrix.org)[/red]")
+        console.print(
+            "[red]Invalid format. Expected: @localpart:domain (e.g. @mybot:matrix.org)[/red]"
+        )
 
 
 def _ask_matrix_password(console: Console) -> str:
@@ -576,34 +578,62 @@ def _offer_service_install(console: Console) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _write_config(
-    *,
-    transport: str,
-    user_timezone: str,
-    docker_enabled: bool,
-    docker_extras: list[str] | None = None,
+class _WizardConfig(TypedDict, total=False):
+    """Wizard values passed to ``_write_config``."""
+
+    transport: str
+    user_timezone: str
+    docker_enabled: bool
+    docker_extras: list[str] | None
     # Telegram
-    telegram_token: str = "",
-    allowed_user_ids: list[int] | None = None,
+    telegram_token: str
+    allowed_user_ids: list[int] | None
     # Matrix
-    matrix_homeserver: str = "",
-    matrix_user_id: str = "",
-    matrix_password: str = "",
-    matrix_allowed_users: list[str] | None = None,
-) -> Path:
+    matrix_homeserver: str
+    matrix_user_id: str
+    matrix_password: str
+    matrix_allowed_users: list[str] | None
+
+
+def _load_existing_config(config_path: Path) -> dict[str, object]:
+    """Load existing config or return empty dict."""
+    if config_path.exists():
+        try:
+            return json.loads(config_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            logger.warning(
+                "Ignoring invalid config file during onboarding: %s",
+                config_path,
+            )
+    return {}
+
+
+def _apply_transport_config(merged: dict[str, object], cfg: _WizardConfig) -> None:
+    """Write transport-specific keys into *merged*."""
+    if cfg.get("transport", "telegram") == "telegram":
+        merged["telegram_token"] = cfg.get("telegram_token", "")
+        merged["allowed_user_ids"] = cfg.get("allowed_user_ids") or []
+    else:  # matrix
+        matrix_section = merged.get("matrix")
+        if not isinstance(matrix_section, dict):
+            matrix_section = {}
+            merged["matrix"] = matrix_section
+        matrix_section["homeserver"] = cfg.get("matrix_homeserver", "")
+        matrix_section["user_id"] = cfg.get("matrix_user_id", "")
+        matrix_section["password"] = cfg.get("matrix_password", "")
+        matrix_section["allowed_users"] = cfg.get("matrix_allowed_users") or []
+        matrix_section["store_path"] = "matrix_store"
+
+
+def _write_config(cfg: _WizardConfig) -> Path:
     """Write the config file with wizard values merged into defaults."""
+    docker_enabled = cfg.get("docker_enabled", False)
+
     paths = resolve_paths()
     config_path = paths.config_path
     config_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if config_path.exists():
-        try:
-            existing: dict[str, object] = json.loads(config_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            logger.warning("Ignoring invalid config file during onboarding: %s", config_path)
-            existing = {}
-    else:
-        existing = {}
+    existing = _load_existing_config(config_path)
 
     defaults = AgentConfig().model_dump(mode="json")
     defaults["gemini_api_key"] = DEFAULT_EMPTY_GEMINI_API_KEY
@@ -611,8 +641,8 @@ def _write_config(
     if merged.get("gemini_api_key") is None:
         merged["gemini_api_key"] = DEFAULT_EMPTY_GEMINI_API_KEY
 
-    merged["transport"] = transport
-    merged["user_timezone"] = user_timezone
+    merged["transport"] = cfg.get("transport", "telegram")
+    merged["user_timezone"] = cfg.get("user_timezone", "UTC")
     raw_docker = merged.get("docker")
     if isinstance(raw_docker, dict):
         docker_section = raw_docker
@@ -620,22 +650,11 @@ def _write_config(
         docker_section = {"enabled": docker_enabled}
         merged["docker"] = docker_section
     docker_section["enabled"] = docker_enabled
+    docker_extras = cfg.get("docker_extras")
     if docker_extras is not None:
         docker_section["extras"] = docker_extras
 
-    if transport == "telegram":
-        merged["telegram_token"] = telegram_token
-        merged["allowed_user_ids"] = allowed_user_ids or []
-    else:  # matrix
-        matrix_section = merged.get("matrix")
-        if not isinstance(matrix_section, dict):
-            matrix_section = {}
-            merged["matrix"] = matrix_section
-        matrix_section["homeserver"] = matrix_homeserver
-        matrix_section["user_id"] = matrix_user_id
-        matrix_section["password"] = matrix_password
-        matrix_section["allowed_users"] = matrix_allowed_users or []
-        matrix_section["store_path"] = "matrix_store"
+    _apply_transport_config(merged, cfg)
 
     from ductor_bot.infra.json_store import atomic_json_save
 
@@ -700,16 +719,18 @@ def run_onboarding() -> bool:
     console.print()
 
     config_path = _write_config(
-        transport=transport,
-        user_timezone=timezone,
-        docker_enabled=docker_enabled,
-        docker_extras=docker_extras,
-        telegram_token=telegram_token,
-        allowed_user_ids=allowed_user_ids,
-        matrix_homeserver=matrix_homeserver,
-        matrix_user_id=matrix_user_id,
-        matrix_password=matrix_password,
-        matrix_allowed_users=matrix_allowed_users,
+        _WizardConfig(
+            transport=transport,
+            user_timezone=timezone,
+            docker_enabled=docker_enabled,
+            docker_extras=docker_extras,
+            telegram_token=telegram_token,
+            allowed_user_ids=allowed_user_ids,
+            matrix_homeserver=matrix_homeserver,
+            matrix_user_id=matrix_user_id,
+            matrix_password=matrix_password,
+            matrix_allowed_users=matrix_allowed_users,
+        )
     )
 
     paths = resolve_paths()

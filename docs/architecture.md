@@ -2,7 +2,12 @@
 
 ## Runtime Overview
 
-ductor supports multiple messaging transports. The `transport` config field (`"telegram"` or `"matrix"`) selects the ingress/delivery layer via a transport registry (`transport_registry.py`).
+ductor supports multiple messaging transports. The `transport` config
+field (`"telegram"` or `"matrix"`) selects a single ingress/delivery
+layer via a transport registry (`messenger/registry.py`). The
+`transports` list field enables parallel multi-transport execution
+(e.g. `["telegram", "matrix"]`); when empty it falls back to the
+single `transport` value.
 
 ```text
 Telegram path:                          Matrix path:
@@ -24,11 +29,15 @@ Background/async results (both transports):
   -> transport-specific delivery (TelegramTransport or MatrixTransport)
 ```
 
+When `transports` lists more than one entry, `MultiBotAdapter`
+starts all transports in parallel and exposes a unified
+`BotProtocol` to the orchestrator.
+
 Direct API path (`api.enabled=true`) uses `ApiServer` and calls orchestrator streaming callbacks directly.
 
 ### Transport dispatch
 
-`transport_registry.py` maps `config.transport` to a bot factory:
+`messenger/registry.py` maps `config.transport` to a bot factory:
 
 - `"telegram"` -> `TelegramBot` (aiogram)
 - `"matrix"` -> `MatrixBot` (matrix-nio)
@@ -60,7 +69,7 @@ Both implement `BotProtocol`. Adding a new transport requires only a new factory
 8. start `agents.json` watcher
 9. block on main completion and return its exit code
 
-### Bot startup (Telegram: `bot/startup.py`, Matrix: `matrix/startup.py`)
+### Bot startup (Telegram: `messenger/telegram/startup.py`, Matrix: `messenger/matrix/startup.py`)
 
 Telegram startup:
 
@@ -92,7 +101,7 @@ Matrix startup follows a similar pattern (orchestrator creation, bus wiring, obs
 
 ## Command Ownership and Routing
 
-Bot-level handlers (`bot/app.py`):
+Bot-level handlers (`messenger/telegram/app.py`):
 
 - `/start`, `/help`, `/info`, `/showfiles`, `/stop`, `/stop_all`, `/restart`, `/new`, `/session`, `/sessions`, `/tasks`, `/agent_commands`
 - main-agent-only handlers: `/agents`, `/agent_start`, `/agent_stop`, `/agent_restart`
@@ -183,7 +192,7 @@ Gemini safeguard:
 
 - `Envelope` captures origin, lock mode, injection requirements, delivery mode
 - observers are wired in one call: `ObserverManager.wire_to_bus(...)`
-- Telegram transport formatting is centralized in `bus/telegram_transport.py`
+- Telegram transport formatting is centralized in `messenger/telegram/transport.py`
 - shared `LockPool` prevents lock drift across middleware, API, and background delivery
 
 ## Callback Query Routing
