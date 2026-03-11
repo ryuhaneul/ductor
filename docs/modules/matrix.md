@@ -2,7 +2,7 @@
 
 Matrix/Element transport layer (`matrix-nio`): message handling, streaming, buttons, formatting, credentials.
 
-Alternative to the Telegram transport — selected via `config.transport = "matrix"`.
+Alternative to Telegram via `config.transport = "matrix"`, or run in parallel with Telegram via `config.transports`.
 For shared messenger protocols and the transport registry, see
 [messenger.md](messenger.md).
 
@@ -61,6 +61,7 @@ Matrix lacks inline keyboards. Workaround:
 - **Room-level**: `allowed_rooms` filter (empty = all rooms)
 - **User-level**: `allowed_users` filter (empty = all users)
 - **Group mention-only**: in multi-user rooms, bot responds only to @mentions or replies to its own messages
+- **Important nuance**: when `group_mention_only=true` in non-DM rooms, `allowed_users` is bypassed and room allowlist + mention/reply become the effective gate
 - Auto-join allowed rooms on invite; reject + leave unauthorized rooms
 
 ## Command routing
@@ -68,7 +69,8 @@ Matrix lacks inline keyboards. Workaround:
 Same command set as Telegram, with `!` or `/` prefix:
 
 - Transport-level: `!stop`, `!stop_all`, `!restart`, `!new`, `!help`, `!info`, `!session`, `!showfiles`, `!agent_commands`
-- Orchestrator-routed: `!status`, `!model`, `!memory`, `!cron`, `!sessions`, `!tasks`, `!agents`
+- Orchestrator-routed: `!status`, `!model`, `!memory`, `!cron`, `!diagnose`, `!upgrade`, `!sessions`, `!tasks`
+- Main-agent only: `!agents`, `!agent_start`, `!agent_stop`, `!agent_restart`
 
 ## Setup
 

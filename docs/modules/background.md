@@ -52,7 +52,7 @@ Common statuses:
 
 - observer is created by `ObserverManager.init_task_observers(...)`
 - result callback is wired in `ObserverManager.wire_to_bus(...)`
-- delivery formatting/injection is handled by `MessageBus` + `TelegramTransport`
+- delivery formatting/injection is handled by `MessageBus` + registered transport adapters (`TelegramTransport`, `MatrixTransport`)
 
 ## Limits and persistence
 

@@ -27,6 +27,10 @@ Bot-level handlers:
 - main-agent only: `/agents`, `/agent_start`, `/agent_stop`, `/agent_restart`
 - hidden but supported: `/where`, `/leave` (not in Telegram command popup)
 
+Immediate middleware-handled command path (pre-lock, no normal dispatch):
+
+- `/interrupt` (and bare-word interrupt triggers like `esc`, `interrupt`)
+
 Orchestrator-routed commands:
 
 - `/status`, `/memory`, `/model`, `/cron`, `/diagnose`, `/upgrade`, `/sessions`, `/tasks`
@@ -47,7 +51,7 @@ Orchestrator-routed commands:
 
 Flow order:
 
-1. abort checks before lock (`/stop_all`, `/stop`, abort phrases)
+1. interrupt/abort checks before lock (`/interrupt`, `/stop_all`, `/stop`, abort phrases)
 2. quick-command bypass
 3. dedupe by `chat_id:message_id`
 4. queue indicator when lock is busy (`mq:<entry_id>` cancel callback)

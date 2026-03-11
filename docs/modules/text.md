@@ -17,6 +17,7 @@ Shared user-facing response text helpers used across bot and orchestrator layers
 - `timeout_warning_text(remaining)`
 - `timeout_extended_text(extension, remaining_ext)`
 - `timeout_result_text(elapsed, configured)`
+- `timeout_error_text(model, timeout_seconds)`
 - `startup_notification_text(kind)`
 - `recovery_notification_text(kind, prompt_preview, session_name="")`
 

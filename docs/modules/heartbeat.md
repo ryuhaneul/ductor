@@ -43,6 +43,6 @@ Observer delegates heartbeats to `Orchestrator.handle_heartbeat(...)` (`heartbea
 
 ## Delivery model
 
-Heartbeat results are wrapped as envelopes and delivered through `MessageBus` -> `TelegramTransport`.
+Heartbeat results are wrapped as envelopes and delivered through `MessageBus` -> active transport adapters (`TelegramTransport` / `MatrixTransport`).
 
 No direct `TelegramBot._on_heartbeat_result` callback path exists anymore.

@@ -10,6 +10,7 @@ CLI command implementation package extracted from `__main__.py`.
 - `cli_commands/docker.py`: `ductor docker ...`
 - `cli_commands/api_cmd.py`: `ductor api ...`
 - `cli_commands/agents.py`: `ductor agents ...`
+- `cli_commands/install.py`: `ductor install <extra>`
 
 ## Role in runtime
 
@@ -29,6 +30,7 @@ This keeps lifecycle logic testable and prevents command monolith growth.
 - docker: enable/disable/rebuild/mount/unmount/mounts/extras/extras-add/extras-remove
 - api: enable/disable direct WebSocket API block in config
 - agents: list/add/remove sub-agent entries in `agents.json`
+- install extras: `ductor install <extra>` for optional Python extras (`matrix`, `api`)
 
 ## Notable behavior details
 

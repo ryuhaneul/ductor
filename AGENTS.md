@@ -2,12 +2,15 @@ This file gives coding agents a current map of the repository.
 
 ## Project Overview
 
-ductor is a Telegram bot that routes chat input to official provider CLIs (`claude`, `codex`, `gemini`), streams responses back to Telegram, persists per-chat state, and runs cron/webhook/heartbeat automation in-process.
+ductor is a multi-transport chat orchestrator for official provider CLIs (`claude`, `codex`, `gemini`).
+It supports Telegram and Matrix, optional direct WebSocket API ingress, in-process automation (cron/webhook/heartbeat/cleanup), and multi-agent runtime (main + sub-agents) under one supervisor.
 
 Stack:
 
 - Python 3.11+
-- aiogram 3.x
+- aiogram 3.x (Telegram)
+- matrix-nio (Matrix, optional extra)
+- aiohttp (webhook + internal API + optional direct API)
 - Pydantic 2.x
 - asyncio
 
@@ -24,7 +27,6 @@ ductor -v
 
 # Tests
 pytest
-pytest tests/bot/test_app.py
 pytest -k "pattern"
 
 # Quality
@@ -36,57 +38,75 @@ mypy ductor_bot
 ## Runtime Flow
 
 ```text
-Telegram Update
-  -> AuthMiddleware
-  -> SequentialMiddleware (queue + per-chat lock)
-  -> TelegramBot handlers
-  -> Orchestrator
-  -> CLIService
-  -> provider subprocess (claude/codex/gemini)
-  -> Telegram output (stream edit or one-shot)
+Telegram:
+  Update -> AuthMiddleware -> SequentialMiddleware -> TelegramBot
+  -> Orchestrator -> CLIService -> provider subprocess -> Telegram delivery
+
+Matrix:
+  sync event -> MatrixBot auth/room checks -> Orchestrator
+  -> CLIService -> provider subprocess -> Matrix delivery
+
+API (optional):
+  /ws auth (token + e2e_pk) -> encrypted frames
+  -> Orchestrator streaming -> encrypted result events
+```
+
+Background and async delivery:
+
+```text
+Observer/TaskHub/InterAgentBus callback
+  -> bus.adapters -> Envelope -> MessageBus
+  -> optional lock + optional session injection
+  -> transport adapters (TelegramTransport / MatrixTransport)
 ```
 
 ## Module Map
 
 | Module | Purpose |
 |---|---|
-| `bot/` | Telegram handlers, callback routing, streaming delivery, queue UX |
-| `orchestrator/` | command registry, directives/hooks, flow routing, observer wiring |
-| `cli/` | provider wrappers, stream parsing, auth checks, process registry, model caches |
-| `session/` | chat sessions with provider-isolated buckets |
-| `background/` | named background sessions (`/session`) with follow-ups |
-| `cron/` | in-process scheduler and one-shot task execution |
-| `webhook/` | HTTP hooks (`wake` and `cron_task`) |
-| `heartbeat/` | periodic proactive checks in active sessions |
-| `cleanup/` | daily retention cleanup |
-| `workspace/` | home seeding, rules deployment/sync, skill sync |
-| `infra/` | PID lock, service backends, Docker manager, update/restart helpers |
+| `cli_commands/` | CLI command implementations (lifecycle, service, docker, api, agents, install) |
+| `messenger/telegram/` | Telegram transport (handlers, middleware, startup, file/media UX) |
+| `messenger/matrix/` | Matrix transport (commands, streaming, reaction buttons, media) |
+| `messenger/` | transport protocol/capabilities/registry + multi-transport adapter |
+| `orchestrator/` | command routing, directives/hooks, conversation flows, provider/observer wiring |
+| `bus/` | unified `Envelope` + `MessageBus` + shared `LockPool` delivery pipeline |
+| `cli/` | provider wrappers, stream parsing, auth checks, model caches, process registry |
+| `session/` | `SessionKey(chat_id, topic_id)`, provider-isolated session buckets, named sessions |
+| `tasks/` | delegated background task runtime (`TaskHub`) + persistence |
+| `multiagent/` | supervisor, inter-agent bus, localhost internal API bridge, shared knowledge sync |
+| `api/` | optional direct WebSocket API + authenticated file endpoints |
+| `cron/`, `webhook/`, `heartbeat/`, `cleanup/`, `background/` | in-process automation observers |
+| `workspace/` | `~/.ductor` path model, initialization, rule deployment/sync, skill sync |
+| `infra/` | pid lock, service backends, docker manager, restart/update/recovery helpers |
+| `files/`, `security/`, `text/` | shared file/path safety, prompt safety, response formatting |
 
 ## Key Runtime Patterns
 
-- `DuctorPaths` (`workspace/paths.py`) is the single source of truth for paths.
+- `DuctorPaths` (`workspace/paths.py`) is the single source of truth for runtime paths.
+- Session identity is `SessionKey(chat_id, topic_id)` across Telegram topics, Matrix rooms (mapped int), and API channel isolation.
+- `/new` resets only the active provider bucket for the active session key.
+- `MessageBus` is the single async delivery path for observers, task callbacks, and inter-agent async responses.
+- One shared `LockPool` is used by Telegram middleware, API server, and `MessageBus`.
 - Workspace init is zone-based:
-  - Zone 2 overwrite: `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, and framework cron/webhook tool scripts.
-  - Zone 3 seed-once for user-owned files.
-- Rules are selected from `RULES*.md` variants and deployed per authenticated provider.
-- Rule sync updates existing `CLAUDE.md`, `AGENTS.md`, `GEMINI.md` siblings recursively by mtime.
-- Skill sync spans `~/.ductor/workspace/skills`, `~/.claude/skills`, `~/.codex/skills`, `~/.gemini/skills`.
-  - normal mode: links
-  - Docker mode: managed copies (`.ductor_managed` marker)
-- Streaming fallback is automatic; `/stop` abort checks are enforced during event loop processing.
-- Session state is provider-isolated; `/new` resets only the active provider bucket.
+  - Zone 2 overwrite: `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, framework-managed tool scripts
+  - Zone 3 seed-once: user-owned files
+- Rule sync is mtime-based for sibling `CLAUDE.md`/`AGENTS.md`/`GEMINI.md`; cron task folders additionally get missing rule backfill.
+- Skill sync spans `~/.ductor/workspace/skills`, `~/.claude/skills`, `~/.codex/skills`, `~/.gemini/skills`:
+  - normal mode: links/junctions
+  - Docker mode: managed copies (`.ductor_managed`)
 
 ## Background Systems
 
 All run as in-process asyncio tasks:
 
-- `BackgroundObserver`
+- `BackgroundObserver` (named sessions)
 - `CronObserver`
-- `HeartbeatObserver`
 - `WebhookObserver`
+- `HeartbeatObserver`
 - `CleanupObserver`
 - `CodexCacheObserver`
 - `GeminiCacheObserver`
+- config reloader
 - rule sync watcher
 - skill sync watcher
 - update observer (upgradeable installs)
@@ -102,26 +122,33 @@ All run as in-process asyncio tasks:
 - Linux: `journalctl --user -u ductor -f`
 - macOS/Windows: recent lines from `~/.ductor/logs/agent.log` (fallback newest `*.log`)
 
-## CLI Commands
+## CLI Surface
 
-| Command | Effect |
-|---|---|
-| `ductor` | Start bot (runs onboarding if needed) |
-| `ductor stop` | Stop bot and Docker container |
-| `ductor restart` | Restart bot |
-| `ductor upgrade` | Stop, upgrade, restart |
-| `ductor docker rebuild` | Stop bot, remove container & image, rebuilt on next start |
-| `ductor docker enable` | Set `docker.enabled = true` |
-| `ductor docker disable` | Stop container, set `docker.enabled = false` |
-| `ductor service install` | Install as background service |
-| `ductor service [sub]` | Service management (status/stop/logs/...) |
+Core:
 
-## Data Files (`~/.ductor`)
+- `ductor`, `ductor onboarding`, `ductor reset`
+- `ductor status`, `ductor stop`, `ductor restart`, `ductor upgrade`, `ductor uninstall`
+
+Groups:
+
+- `ductor service <install|status|start|stop|logs|uninstall>`
+- `ductor docker <rebuild|enable|disable|mount|unmount|mounts|extras|extras-add|extras-remove>`
+- `ductor api <enable|disable>`
+- `ductor agents <list|add|remove>`
+- `ductor install <matrix|api>`
+
+## Key Data Files (`~/.ductor`)
 
 - `config/config.json`
 - `sessions.json`
+- `named_sessions.json`
+- `tasks.json`
 - `cron_jobs.json`
 - `webhooks.json`
+- `agents.json`
+- `startup_state.json`
+- `inflight_turns.json`
+- `chat_activity.json`
 - `logs/agent.log`
 
 ## Conventions
@@ -129,6 +156,6 @@ All run as in-process asyncio tasks:
 - `asyncio_mode = "auto"` in tests
 - line length 100
 - mypy strict mode
-- ruff with strict lint profile
+- ruff strict lint profile
 - config deep-merge adds new defaults without dropping user keys
 - supervisor restart code is `42`

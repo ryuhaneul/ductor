@@ -26,6 +26,7 @@ Operation codes currently used:
 - `wh`: webhook request / webhook wake dispatch
 - `api`: direct API WebSocket session/message handling (`ApiServer._session_loop`, `_route_text_message`)
 - `ia-async`: async inter-agent result processing (`TelegramBot.on_async_interagent_result`)
+- `task`: task result/question delivery paths (`TelegramBot.on_task_result`, `on_task_question`)
 
 `set_log_context()` updates the context for the current async task; child tasks inherit current context.
 

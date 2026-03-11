@@ -11,6 +11,7 @@ Covers `ductor` command behavior, onboarding flow, and lifecycle commands.
 - `ductor_bot/cli_commands/docker.py`: docker subcommands
 - `ductor_bot/cli_commands/api_cmd.py`: API enable/disable commands
 - `ductor_bot/cli_commands/agents.py`: sub-agent registry commands
+- `ductor_bot/cli_commands/install.py`: optional extras installer (`ductor install <extra>`)
 - `ductor_bot/infra/docker_extras.py`: optional Docker package registry + Dockerfile generation
 - `ductor_bot/cli/init_wizard.py`: onboarding + smart reset
 
@@ -27,11 +28,15 @@ Covers `ductor` command behavior, onboarding flow, and lifecycle commands.
 - `ductor docker <rebuild|enable|disable|mount|unmount|mounts|extras|extras-add|extras-remove>`
 - `ductor api <enable|disable>`
 - `ductor agents <list|add|remove>`
+- `ductor install <matrix|api>`
 - `ductor help`
 
 ## Configuration gate
 
-`_is_configured()` checks based on `transport` field:
+`_is_configured()` checks all active transports:
+
+- when `transports` is set: every listed transport must pass its checker
+- when `transports` is empty: falls back to single `transport`
 
 - **Telegram** (default): valid non-placeholder `telegram_token` + non-empty `allowed_user_ids`
 - **Matrix**: non-empty `homeserver` + non-empty `user_id`

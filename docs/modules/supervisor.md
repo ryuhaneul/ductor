@@ -44,7 +44,10 @@ Each agent runs in `_supervised_run(...)` with health tracking.
 
 - added entry: start sub-agent
 - removed entry: stop sub-agent
-- changed `telegram_token`: restart sub-agent
+- restart triggers for running sub-agents:
+  - `transport` changed
+  - Telegram identity changed (`telegram_token`)
+  - Matrix identity changed (`matrix.homeserver` or `matrix.user_id`)
 - other config field changes in `agents.json` currently do not trigger auto-restart
 
 ## Orchestrator hook injection
@@ -53,7 +56,7 @@ During bot startup, supervisor injects hooks into each agent dispatcher.
 
 - sets `orch._supervisor`
 - on main agent: registers multi-agent commands (`/agents`, `/agent_start`, `/agent_stop`, `/agent_restart`)
-- on main agent: wires `/stop_all` callback (`TelegramBot.set_abort_all_callback(...)`) to `AgentSupervisor.abort_all_agents()`
+- on main agent: wires `/stop_all` / `!stop_all` callback (`BotProtocol.set_abort_all_callback(...)`) to `AgentSupervisor.abort_all_agents()`
 - when task hub is active: wires `TaskHub` into each orchestrator (per-agent CLI service, result/question callbacks, primary chat ID mapping)
 
 ## Cross-Agent Abort

@@ -41,8 +41,10 @@ Notes:
 
 - `/stop` and `/stop_all` are middleware/bot-level abort paths (not orchestrator command dispatch).
 - `/new` resets only the active provider bucket for the active session key.
-- in groups: both `allowed_group_ids` and `allowed_user_ids` must allow the message.
-- `group_mention_only` is a mention/reply filter only (never an auth bypass).
+- Telegram groups: both `allowed_group_ids` and `allowed_user_ids` must allow the message.
+- `group_mention_only` behavior differs by transport:
+  - Telegram: mention/reply gating only (no auth bypass)
+  - Matrix non-DM rooms: user allowlist check is bypassed; room allowlist + mention/reply are used as the gate
 
 ## 3) Session identity model
 
@@ -141,18 +143,20 @@ Sub-agent home: `~/.ductor/agents/<name>/` with its own config/workspace/session
 Chat commands (Telegram and Matrix):
 
 - `/new`, `/stop`, `/stop_all`, `/model`, `/status`, `/memory`, `/session`, `/sessions`, `/tasks`, `/cron`, `/diagnose`, `/upgrade`
-- hidden utility commands: `/where`, `/leave` (work but are not in command popup)
+- Telegram-only utility commands: `/where`, `/leave` (work but are not in command popup)
 - Matrix uses `!` prefix by default (e.g. `!help`, `!status`); `/` also works but may conflict with Element's built-in commands
 
-Main-agent only (Telegram):
+Main-agent only (chat commands):
 
-- `/agents`, `/agent_start`, `/agent_stop`, `/agent_restart`, `/agent_commands`
+- Telegram: `/agents`, `/agent_start`, `/agent_stop`, `/agent_restart`, `/agent_commands`
+- Matrix: `!agents`, `!agent_start`, `!agent_stop`, `!agent_restart`, `!agent_commands` (`/` prefix also supported)
 
 CLI:
 
 - `ductor`
-- `ductor status|stop|restart|upgrade|uninstall|onboarding|reset`
+- `ductor status|stop|restart|upgrade|uninstall|onboarding|reset|help`
 - `ductor service ...`
 - `ductor docker ...` (includes `extras`, `extras-add`, `extras-remove` for optional AI/ML packages)
 - `ductor api ...`
 - `ductor agents ...`
+- `ductor install <extra>` (`matrix`, `api`)

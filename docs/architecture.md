@@ -106,6 +106,12 @@ Bot-level handlers (`messenger/telegram/app.py`):
 - `/start`, `/help`, `/info`, `/showfiles`, `/stop`, `/stop_all`, `/restart`, `/new`, `/session`, `/sessions`, `/tasks`, `/agent_commands`
 - main-agent-only handlers: `/agents`, `/agent_start`, `/agent_stop`, `/agent_restart`
 
+Matrix command ownership (`messenger/matrix/bot.py`):
+
+- direct transport commands: `!stop`, `!stop_all`, `!restart`, `!new`, `!help`, `!info`, `!session`, `!showfiles`, `!agent_commands`
+- orchestrator-routed commands: `!status`, `!model`, `!memory`, `!cron`, `!diagnose`, `!upgrade`, `!sessions`, `!tasks`
+- main-agent-only multi-agent commands: `!agents`, `!agent_start`, `!agent_stop`, `!agent_restart` (`/` prefix also supported)
+
 Orchestrator command registry (`orchestrator/commands.py`):
 
 - `/new`, `/status`, `/model`, `/memory`, `/cron`, `/diagnose`, `/upgrade`, `/sessions`, `/tasks`

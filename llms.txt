@@ -1,6 +1,6 @@
 # ductor
 
-> Telegram-first AI orchestration runtime that executes official provider CLIs (`claude`, `codex`, `gemini`) as subprocesses, supports optional direct WebSocket API transport, streams responses, persists per-chat/provider state, and runs automation (cron, webhook, heartbeat, cleanup) in-process.
+> Multi-transport AI orchestration runtime (Telegram + Matrix) that executes official provider CLIs (`claude`, `codex`, `gemini`) as subprocesses, supports optional direct WebSocket API transport, streams responses, persists per-chat/provider state, and runs automation (cron, webhook, heartbeat, cleanup) in-process.
 
 ductor is a Python service that routes user input to official CLI tools instead of SDK proxy layers. Core principle: keep runtime state inspectable and local (`~/.ductor/`) with JSON/Markdown files and minimal hidden state.
 
@@ -88,7 +88,7 @@ Sub-agent homes live under `~/.ductor/agents/<name>/` with their own config/sess
 
 - `ductor_bot/__main__.py` (CLI entry, load/merge config, run supervisor)
 - `ductor_bot/multiagent/supervisor.py` (main + sub-agent lifecycle)
-- `ductor_bot/bot/app.py` (Telegram startup, handlers, callback routing, recovery kickoff)
+- `ductor_bot/messenger/telegram/app.py` + `ductor_bot/messenger/telegram/startup.py` (Telegram startup, handlers, callback routing, recovery)
 - `ductor_bot/orchestrator/core.py` (wiring and routing)
 - `ductor_bot/orchestrator/flows.py` (normal/streaming/session/heartbeat flows)
 - `ductor_bot/cli/service.py` + provider wrappers

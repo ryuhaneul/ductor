@@ -9,6 +9,7 @@ Unified result-delivery layer for observers, async inter-agent responses, and ta
 - `bus/lock_pool.py`: shared per-session lock pool (`(chat_id, topic_id)`)
 - `bus/adapters.py`: conversion helpers from domain results to `Envelope`
 - `messenger/telegram/transport.py`: Telegram transport adapter + origin-specific formatting
+- `messenger/matrix/transport.py`: Matrix transport adapter for room delivery formatting/routing
 
 ## Why this module exists
 
@@ -66,7 +67,8 @@ Task/topic nuance:
 
 ## Wiring
 
-- The active bot (Telegram or Matrix) creates `MessageBus(lock_pool=self._lock_pool)` and registers its transport
+- Single-transport mode: the active bot creates `MessageBus(lock_pool=self._lock_pool)` and registers its transport
+- Multi-transport mode: `MultiBotAdapter` creates one shared `MessageBus`; each bot registers its own transport adapter
 - `run_startup()` calls `orch.wire_observers_to_bus(bot._bus, wake_handler=...)`
 - `ObserverManager.wire_to_bus(...)` connects cron/heartbeat/background/webhook callbacks in one call
 - `bus.set_injector(orchestrator)` enables prompt injection paths

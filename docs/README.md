@@ -25,7 +25,7 @@ ductor routes chat input to official provider CLIs (`claude`, `codex`, `gemini`)
 ## System in 60 Seconds
 
 - `ductor_bot/__main__.py`: thin CLI entrypoint (dispatch) + config loading.
-- `ductor_bot/cli_commands/`: concrete CLI subcommand implementations (`agents`, `docker`, `service`, `api`, lifecycle/status helpers).
+- `ductor_bot/cli_commands/`: concrete CLI subcommand implementations (`agents`, `docker`, `service`, `api`, `install`, lifecycle/status helpers).
 - `ductor_bot/messenger/`: transport-agnostic protocols, capabilities, notifications, registry.
 - `ductor_bot/messenger/telegram/`: aiogram handlers, auth/sequencing middleware, streaming dispatch, callback routing, group audit/chat tracking.
 - `ductor_bot/messenger/matrix/`: matrix-nio handlers, segment streaming, reaction buttons, formatting.

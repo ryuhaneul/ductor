@@ -77,7 +77,7 @@ Changes take effect on the next CLI invocation (mtime-based cache invalidation, 
 | `max_turns` | `int \| None` | `None` | Passed to Claude CLI |
 | `max_session_messages` | `int \| None` | `None` | Session rollover limit |
 | `permission_mode` | `str` | `"bypassPermissions"` | Provider sandbox/approval mode |
-| `cli_timeout` | `float` | `600.0` | Legacy/global timeout. Still used by cron/webhook `cron_task`, inter-agent turns, stale-process heartbeat cleanup, and as fallback for unknown timeout paths |
+| `cli_timeout` | `float` | `1800.0` | Legacy/global timeout. Still used by cron/webhook `cron_task`, inter-agent turns, stale-process heartbeat cleanup, and as fallback for unknown timeout paths |
 | `reasoning_effort` | `str` | `"medium"` | Default Codex reasoning level |
 | `file_access` | `str` | `"all"` | File access scope (`all`, `home`, `workspace`) for file sends and API `GET /files`; unknown values fall back to workspace-only |
 | `gemini_api_key` | `str \| None` | `None` | Config fallback key injected for Gemini API-key mode |
@@ -86,7 +86,7 @@ Changes take effect on the next CLI invocation (mtime-based cache invalidation, 
 | `telegram_token` | `str` | `""` | Telegram bot token (required when `transport=telegram`) |
 | `allowed_user_ids` | `list[int]` | `[]` | Telegram user allowlist (applies in both private and group chats) |
 | `allowed_group_ids` | `list[int]` | `[]` | Telegram group allowlist (which groups the bot can operate in; default `[]` = no groups, fail-closed). In groups, both the group and the user must be allowlisted |
-| `group_mention_only` | `bool` | `false` | In allowlisted group chats, only process messages that explicitly mention or reply to the bot (mention-gating filter; not an auth bypass) |
+| `group_mention_only` | `bool` | `false` | Mention/reply gating in group rooms. Telegram: filter only (no auth bypass). Matrix: in non-DM rooms this bypasses `allowed_users` and uses room + mention/reply as gate |
 | `matrix` | `MatrixConfig` | see below | Matrix homeserver connection (required when `transport=matrix`) |
 | `streaming` | `StreamingConfig` | see below | Streaming tuning |
 | `docker` | `DockerConfig` | see below | Docker sidecar config |
@@ -97,6 +97,8 @@ Changes take effect on the next CLI invocation (mtime-based cache invalidation, 
 | `cli_parameters` | `CLIParametersConfig` | see below | Provider-specific extra CLI flags |
 | `timeouts` | `TimeoutConfig` | see below | Path-specific timeout policy (`normal`, `background`, `subagent`) |
 | `tasks` | `TasksConfig` | see below | Delegated background task system (`TaskHub`) |
+| `update_check` | `bool` | `true` | Enables periodic update observer (`UpdateObserver`) |
+| `interagent_port` | `int` | `8799` | Port for internal localhost API (`InternalAgentAPI`) |
 
 ### Multi-transport behavior
 
@@ -456,11 +458,12 @@ Managed via:
 | Field | Type | Required | Default | Notes |
 |---|---|---|---|---|
 | `name` | `str` | yes | | Unique lowercase identifier |
-| `transport` | `str` | no | inherited | `"telegram"` or `"matrix"` |
+| `transport` | `str` | no | `"telegram"` | `"telegram"` or `"matrix"` |
 | `telegram_token` | `str` | conditional | | Required when `transport=telegram` |
 | `matrix` | `MatrixConfig` | conditional | | Required when `transport=matrix` |
 | `allowed_user_ids` | `list[int]` | no | `[]` | Telegram user allowlist |
 | `allowed_group_ids` | `list[int]` | no | `[]` | Telegram group allowlist |
+| `group_mention_only` | `bool` | no | inherited | Mention/reply gating toggle (transport-specific behavior) |
 | `provider` | `str` | no | inherited | Default provider |
 | `model` | `str` | no | inherited | Default model |
 | `log_level` | `str` | no | inherited | |
@@ -544,7 +547,10 @@ Notes:
 
 - new entry -> start sub-agent
 - removed entry -> stop sub-agent
-- `telegram_token` change on running agent -> restart sub-agent
+- restart triggers for running agents:
+  - `transport` changed
+  - Telegram identity changed (`telegram_token`)
+  - Matrix identity changed (`matrix.homeserver` or `matrix.user_id`)
 - other field changes currently do not auto-restart running agents
 
 For non-token field updates on a running agent, use `/agent_restart <name>` (or restart the bot) to apply them immediately.

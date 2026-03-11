@@ -46,7 +46,10 @@ Watcher polls `agents.json` every 5s.
 
 - added entry -> start sub-agent
 - removed entry -> stop sub-agent
-- token change -> restart sub-agent
+- restart triggers for running sub-agents:
+  - `transport` changed
+  - Telegram identity changed (`telegram_token`)
+  - Matrix identity changed (`matrix.homeserver` or `matrix.user_id`)
 - other field changes do not auto-restart running agent
 
 ## Crash/restart policy
@@ -153,14 +156,12 @@ This enables task submission from any agent while preserving owner routing.
 
 Legacy HTML marker format is migrated to current block markers when rewritten.
 
-## Telegram and CLI commands
+## Chat and CLI commands
 
-Telegram (main agent only):
+Main-agent chat commands:
 
-- `/agents`
-- `/agent_start <name>`
-- `/agent_stop <name>`
-- `/agent_restart <name>`
+- Telegram: `/agents`, `/agent_start <name>`, `/agent_stop <name>`, `/agent_restart <name>`
+- Matrix: `!agents`, `!agent_start <name>`, `!agent_stop <name>`, `!agent_restart <name>` (`/` prefix also works)
 
 CLI:
 

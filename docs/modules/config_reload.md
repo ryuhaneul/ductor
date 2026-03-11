@@ -38,10 +38,11 @@ Important runtime nuance:
 
 ## Restart-required fields
 
-- `telegram_token`
-- `docker`, `api`, `webhooks`
-- `ductor_home`, `log_level`, `gemini_api_key`, `timeouts`, `tasks`
-- restart classification is schema-based over `AgentConfig` top-level fields
+- transport/auth: `transport`, `transports`, `telegram_token`, `matrix`
+- runtime topology: `docker`, `api`, `webhooks`, `interagent_port`
+- environment/core: `ductor_home`, `log_level`, `gemini_api_key`, `update_check`
+- timeout/task policy: `timeouts`, `tasks`
+- classification is schema-based over `AgentConfig` top-level fields: any changed top-level field not in the hot-reloadable set is reported as restart-required.
 
 Timeout note:
 
@@ -56,4 +57,4 @@ Timeout note:
 - `on_hot_reload` -> `Orchestrator._on_config_hot_reload(...)`
 - `on_restart_needed` -> warning logger callback
 
-`Orchestrator.shutdown()` stops it via `_stop_observers()`.
+`Orchestrator.shutdown()` stops it via `orchestrator/lifecycle.shutdown(...)` -> `ObserverManager.stop_all()`.
