@@ -304,8 +304,8 @@ class TestHeartbeatValidation:
 
 
 class TestPerTargetInterval:
-    async def test_target_with_longer_interval_skips_early_ticks(self) -> None:
-        """A target with interval_minutes=60 should not run on every 30-min tick."""
+    async def test_target_with_custom_interval_gets_own_loop(self) -> None:
+        """A target with interval_minutes runs independently, not in global _tick."""
         target = HeartbeatTarget(chat_id=-1001, interval_minutes=60)
         config = AgentConfig(
             heartbeat=HeartbeatConfig(
@@ -318,23 +318,13 @@ class TestPerTargetInterval:
         obs = HeartbeatObserver(config)
         handler = AsyncMock(return_value=None)
         obs.set_heartbeat_handler(handler)
+        obs._start_target_loops()
 
-        t0 = datetime(2026, 1, 15, 14, 0, tzinfo=UTC)
-        with time_machine.travel(t0):
-            await obs._tick()
-        assert handler.await_count == 1
+        assert (-1001, None) in obs._target_tasks
 
-        t1 = datetime(2026, 1, 15, 14, 30, tzinfo=UTC)
-        with time_machine.travel(t1):
-            handler.reset_mock()
+        with time_machine.travel(datetime(2026, 1, 15, 14, 0, tzinfo=UTC)):
             await obs._tick()
         handler.assert_not_awaited()
-
-        t2 = datetime(2026, 1, 15, 15, 1, tzinfo=UTC)
-        with time_machine.travel(t2):
-            handler.reset_mock()
-            await obs._tick()
-        handler.assert_awaited_once()
 
     async def test_target_without_interval_runs_every_tick(self) -> None:
         """A target without a custom interval runs on every tick."""

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from collections.abc import Awaitable, Callable
@@ -47,6 +48,7 @@ class HeartbeatObserver(BaseObserver):
         self._chat_validator: ChatValidator | None = None
         self._valid_targets: dict[int, float] = {}
         self._target_last_run: dict[tuple[int, int | None], float] = {}
+        self._target_tasks: dict[tuple[int | None, int | None], asyncio.Task[None]] = {}
 
     @property
     def _hb(self) -> HeartbeatConfig:
@@ -73,7 +75,7 @@ class HeartbeatObserver(BaseObserver):
         self._chat_validator = validator
 
     async def start(self) -> None:
-        """Start the heartbeat background loop."""
+        """Start the heartbeat background loop and per-target loops."""
         if not self._hb.enabled:
             logger.info("Heartbeat disabled in config")
             return
@@ -81,17 +83,72 @@ class HeartbeatObserver(BaseObserver):
             logger.error("Heartbeat handler not set, cannot start")
             return
         await super().start()
+        self._start_target_loops()
         logger.info(
-            "Heartbeat started (every %dm, quiet %d:00-%d:00)",
+            "Heartbeat started (every %dm, quiet %d:00-%d:00, %d group target(s))",
             self._hb.interval_minutes,
             self._hb.quiet_start,
             self._hb.quiet_end,
+            sum(1 for t in self._hb.group_targets if t.enabled and t.chat_id is not None),
         )
 
     async def stop(self) -> None:
-        """Stop the heartbeat background loop."""
+        """Stop the heartbeat background loop and all target loops."""
+        for task in self._target_tasks.values():
+            task.cancel()
+        for task in self._target_tasks.values():
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        self._target_tasks.clear()
         await super().stop()
         logger.info("Heartbeat stopped")
+
+    def _start_target_loops(self) -> None:
+        """Launch independent loops for group targets with custom intervals."""
+        for target in self._hb.group_targets:
+            if not target.enabled or target.chat_id is None:
+                continue
+            interval = target.interval_minutes or self._hb.interval_minutes
+            if interval == self._hb.interval_minutes and target.interval_minutes is None:
+                continue  # No custom interval → runs with global tick
+            key = (target.chat_id, target.topic_id)
+            task = asyncio.create_task(self._target_loop(target, interval))
+            task.add_done_callback(lambda _: None)
+            self._target_tasks[key] = task
+            logger.info(
+                "Heartbeat target %d/%s started (every %dm)",
+                target.chat_id,
+                target.topic_id,
+                interval,
+            )
+
+    async def _target_loop(self, target: HeartbeatTarget, interval_minutes: int) -> None:
+        """Independent loop for a single group target."""
+        assert target.chat_id is not None
+        try:
+            while self._running:
+                await asyncio.sleep(interval_minutes * 60)
+                if not self._running or not self._hb.enabled:
+                    continue
+                if not target.enabled:
+                    continue
+                if not await self._validate_target(target.chat_id):
+                    continue
+                prompt, ack_token, quiet_start, quiet_end = self._resolve_target_settings(
+                    target
+                )
+                if self._is_target_quiet(target.chat_id, quiet_start, quiet_end):
+                    continue
+                await self._run_for_chat(
+                    target.chat_id,
+                    target.topic_id,
+                    prompt=prompt,
+                    ack_token=ack_token,
+                    quiet_start=quiet_start,
+                    quiet_end=quiet_end,
+                )
+        except asyncio.CancelledError:
+            logger.debug("Target loop %d cancelled", target.chat_id)
 
     def _resolve_target_settings(self, target: HeartbeatTarget) -> tuple[str, str, int, int]:
         """Resolve per-target settings with global fallback.
@@ -209,14 +266,14 @@ class HeartbeatObserver(BaseObserver):
         await self._tick_group_targets()
 
     async def _tick_group_targets(self) -> None:
-        """Iterate group targets with validation, interval gating, and per-target settings."""
-        now = time.time()
+        """Iterate group targets that DON'T have their own loop (no custom interval)."""
         for target in self._hb.group_targets:
             if not target.enabled or target.chat_id is None:
                 continue
-            if not await self._validate_target(target.chat_id):
+            # Targets with custom intervals run in their own loop
+            if (target.chat_id, target.topic_id) in self._target_tasks:
                 continue
-            if self._should_skip_target_interval(target, now):
+            if not await self._validate_target(target.chat_id):
                 continue
 
             prompt, ack_token, quiet_start, quiet_end = self._resolve_target_settings(target)
@@ -228,8 +285,6 @@ class HeartbeatObserver(BaseObserver):
                 quiet_start=quiet_start,
                 quiet_end=quiet_end,
             )
-            if target.interval_minutes is not None:
-                self._target_last_run[(target.chat_id or 0, target.topic_id)] = now
 
     def _is_target_quiet(
         self, chat_id: int, quiet_start: int | None, quiet_end: int | None
