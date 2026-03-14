@@ -456,9 +456,9 @@ class TestDispatchFallback:
     async def test_unknown_origin_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
         transport, _, _ = _make_transport()
         # Use an origin that's not in _HANDLERS for unicast
-        env = _env(origin=Origin.CRON)  # CRON is broadcast-only
+        env = _env(origin=Origin.USER)  # USER has no delivery handler
 
         with patch("ductor_bot.messenger.telegram.transport.send_rich", new_callable=AsyncMock):
             await transport.deliver(env)
 
-        assert "No handler for origin=cron" in caplog.text
+        assert "No handler for origin=user" in caplog.text

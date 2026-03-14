@@ -46,6 +46,11 @@ class CronJob:
     # Optional dependency for sequential execution
     dependency: str | None = None
 
+    # Routing: deliver results to the chat/topic where the job was created
+    chat_id: int = 0
+    topic_id: int | None = None
+    transport: str = "tg"
+
     def __post_init__(self) -> None:
         if not self.created_at:
             self.created_at = datetime.now(UTC).isoformat()
@@ -69,6 +74,9 @@ class CronJob:
             "quiet_start": self.quiet_start,
             "quiet_end": self.quiet_end,
             "dependency": self.dependency,
+            "chat_id": self.chat_id,
+            "topic_id": self.topic_id,
+            "transport": self.transport,
         }
         if self.timezone:
             result["timezone"] = self.timezone
@@ -95,6 +103,9 @@ class CronJob:
             quiet_start=data.get("quiet_start"),
             quiet_end=data.get("quiet_end"),
             dependency=data.get("dependency"),
+            chat_id=data.get("chat_id", 0),
+            topic_id=data.get("topic_id"),
+            transport=data.get("transport", "tg"),
         )
 
 

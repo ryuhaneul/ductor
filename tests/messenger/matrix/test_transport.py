@@ -440,14 +440,14 @@ class TestWebhookCronBroadcast:
 class TestDispatchFallback:
     async def test_unknown_origin_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
         transport, _ = _make_transport()
-        env = _env(origin=Origin.CRON)  # CRON is broadcast-only
+        env = _env(origin=Origin.USER)  # USER has no delivery handler
 
         with patch(
             "ductor_bot.messenger.matrix.transport.matrix_send_rich", new_callable=AsyncMock
         ):
             await transport.deliver(env)
 
-        assert "No handler for origin=cron" in caplog.text
+        assert "No handler for origin=user" in caplog.text
 
     async def test_no_room_skips_delivery(self) -> None:
         transport, bot = _make_transport()

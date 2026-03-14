@@ -47,11 +47,36 @@ def from_background_result(result: BackgroundResult) -> Envelope:
 # -- Cron jobs -----------------------------------------------------------------
 
 
-def from_cron_result(title: str, result: str, status: str) -> Envelope:
-    """Convert a cron job result (title, text, status triple)."""
+def from_cron_result(  # noqa: PLR0913
+    title: str,
+    result: str,
+    status: str,
+    *,
+    chat_id: int = 0,
+    topic_id: int | None = None,
+    transport: str = "tg",
+) -> Envelope:
+    """Convert a cron job result (title, text, status triple).
+
+    When *chat_id* is non-zero the envelope is unicast to that chat/topic.
+    Otherwise it broadcasts to all users (legacy behaviour).
+    """
+    if chat_id:
+        return Envelope(
+            origin=Origin.CRON,
+            chat_id=chat_id,
+            topic_id=topic_id,
+            transport=transport,
+            result_text=result,
+            status=status,
+            delivery=DeliveryMode.UNICAST,
+            lock_mode=LockMode.NONE,
+            metadata={"title": title},
+        )
     return Envelope(
         origin=Origin.CRON,
         chat_id=0,
+        transport=transport,
         result_text=result,
         status=status,
         delivery=DeliveryMode.BROADCAST,
@@ -63,7 +88,13 @@ def from_cron_result(title: str, result: str, status: str) -> Envelope:
 # -- Heartbeat ----------------------------------------------------------------
 
 
-def from_heartbeat(chat_id: int, text: str, topic_id: int | None = None) -> Envelope:
+def from_heartbeat(
+    chat_id: int,
+    text: str,
+    topic_id: int | None = None,
+    *,
+    transport: str = "tg",
+) -> Envelope:
     """Convert a heartbeat alert."""
     return Envelope(
         origin=Origin.HEARTBEAT,

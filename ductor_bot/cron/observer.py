@@ -29,8 +29,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Callback signature: (job_title, result_text, status)
-CronResultCallback = Callable[[str, str, str], Awaitable[None]]
+# Callback signature: (job_title, result_text, status, chat_id, topic_id, transport)
+CronResultCallback = Callable[[str, str, str, int, int | None, str], Awaitable[None]]
 
 
 @dataclass(slots=True)
@@ -258,16 +258,23 @@ class CronObserver(BaseTaskObserver):
     # -- Execution --
 
     async def _deliver_result(
-        self, job_id: str, job_title: str, result_text: str, status: str
+        self,
+        job_id: str,
+        job_title: str,
+        result_text: str,
+        status: str,
+        routing: tuple[int, int | None, str] = (0, None, "tg"),
     ) -> None:
         """Send result to the external handler (e.g. Telegram).
 
         Uses *job_title* (computed at execution start) so delivery works even
         if the job was removed from the manager mid-execution.
+        *routing* is ``(chat_id, topic_id, transport)``; ``(0, None, "tg")``
+        means broadcast.
         """
         if self._on_result:
             try:
-                await self._on_result(job_title, result_text, status)
+                await self._on_result(job_title, result_text, status, *routing)
             except Exception:
                 logger.exception("Error in cron result handler for job %s", job_id)
 
@@ -293,6 +300,7 @@ class CronObserver(BaseTaskObserver):
         set_log_context(operation="cron")
         job = self._manager.get_job(job_id)
         job_title = job.title if job else job_id
+        routing = (job.chat_id, job.topic_id, job.transport) if job else (0, None, "tg")
 
         if self._is_quiet_hours(job, job_title):
             return
@@ -326,7 +334,13 @@ class CronObserver(BaseTaskObserver):
 
         if result.execution is None:
             logger.error("CLI not found for cron job %s", job_id)
-            await self._deliver_result(job_id, job_title, result.result_text, result.status)
+            await self._deliver_result(
+                job_id,
+                job_title,
+                result.result_text,
+                result.status,
+                routing,
+            )
             self._manager.update_run_status(job_id, status=result.status)
             return
 
@@ -345,7 +359,13 @@ class CronObserver(BaseTaskObserver):
         # cancels) running tasks.  Delivering first guarantees the
         # Telegram message is sent even if the task is cancelled during
         # the subsequent file I/O.
-        await self._deliver_result(job_id, job_title, result.result_text, result.status)
+        await self._deliver_result(
+            job_id,
+            job_title,
+            result.result_text,
+            result.status,
+            routing,
+        )
 
         self._manager.update_run_status(job_id, status=result.status)
         # Refresh our mtime baseline so the file-watcher doesn't treat the

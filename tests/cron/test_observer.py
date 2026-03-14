@@ -522,7 +522,7 @@ class TestCronObserverExecution:
         ):
             await observer._execute_job("daily", "Do work", "daily")
 
-        callback.assert_awaited_once_with("My Daily Task", "All done.", "success")
+        callback.assert_awaited_once_with("My Daily Task", "All done.", "success", 0, None, "tg")
 
     async def test_execute_job_timeout_kills_process(self, tmp_path: Path) -> None:
         """Subprocess that exceeds cli_timeout is killed and reported as timeout."""
@@ -644,10 +644,13 @@ class TestCronResultDelivery:
 
         # Result must be delivered using job_id as fallback title
         callback.assert_awaited_once()
-        title, result_text, status = callback.call_args[0]
+        title, result_text, status, chat_id, topic_id, transport = callback.call_args[0]
         assert title == "ephemeral"
         assert result_text == "Done"
         assert status == "success"
+        assert chat_id == 0
+        assert topic_id is None
+        assert transport == "tg"
 
     async def test_result_delivered_before_file_write(self, tmp_path: Path) -> None:
         """Result handler is called before update_run_status writes to disk."""
@@ -703,9 +706,12 @@ class TestCronResultDelivery:
             await observer._execute_job("broken", "Do work", "broken")
 
         callback.assert_awaited_once()
-        title, result_text, _status = callback.call_args[0]
+        title, result_text, _status, chat_id, topic_id, transport = callback.call_args[0]
         assert title == "Broken Job"
         assert "not found" in result_text.lower()
+        assert chat_id == 0
+        assert topic_id is None
+        assert transport == "tg"
 
     async def test_run_at_catches_unexpected_exception(self, tmp_path: Path) -> None:
         """Unexpected exception in _execute_job does not crash the observer."""

@@ -216,6 +216,54 @@ class TelegramTransport:
 
     async def _broadcast_cron(self, env: Envelope) -> None:
         title = env.metadata.get("title", "?")
+    async def _deliver_cron(self, env: Envelope) -> None:
+        """Deliver cron result to a specific chat/topic (unicast).
+
+        Falls back to the main agent when delivery fails.
+        """
+        from aiogram.exceptions import TelegramAPIError
+
+        title = env.metadata.get("title", "?")
+        clean_result = sanitize_cron_result_text(env.result_text)
+        if env.result_text and not clean_result and env.status == "success":
+            logger.debug(
+                "Cron result only had transport confirmations; skipping unicast task=%s",
+                title,
+            )
+            return
+        text = (
+            f"**TASK: {title}**\n\n{clean_result}"
+            if clean_result
+            else f"**TASK: {title}**\n\n_{env.status}_"
+        )
+        opts = SendRichOpts(
+            allowed_roots=self._roots(),
+            thread_id=env.topic_id,
+        )
+        try:
+            await send_rich(self._bot.bot_instance, env.chat_id, text, opts)
+        except TelegramAPIError:
+            logger.warning(
+                "Cron '%s' delivery failed for chat %d, falling back to main agent",
+                title,
+                env.chat_id,
+            )
+            target = f"Chat {env.chat_id}"
+            if env.topic_id:
+                target += f" / Topic {env.topic_id}"
+            fallback_text = (
+                f"**Cron delivery failed**\n\n"
+                f"Task **{title}** could not be delivered to {target}.\n\n"
+                f"---\n{clean_result or env.status}"
+            )
+            fallback_id = self._bot._config.allowed_user_ids[0]
+            await send_rich(
+                self._bot.bot_instance,
+                fallback_id,
+                fallback_text,
+                SendRichOpts(allowed_roots=self._roots()),
+            )
+
         clean_result = sanitize_cron_result_text(env.result_text)
         if env.result_text and not clean_result and env.status == "success":
             logger.debug(
@@ -250,6 +298,7 @@ _HANDLERS: dict[Origin, _Handler] = {
     Origin.INTERAGENT: TelegramTransport._deliver_interagent,
     Origin.TASK_RESULT: TelegramTransport._deliver_task_result,
     Origin.TASK_QUESTION: TelegramTransport._deliver_task_question,
+    Origin.CRON: TelegramTransport._deliver_cron,
     Origin.WEBHOOK_WAKE: TelegramTransport._deliver_webhook_wake,
 }
 

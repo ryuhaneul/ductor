@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -314,6 +315,14 @@ def main() -> None:
         job["quiet_end"] = args.quiet_end
     if args.dependency:
         job["dependency"] = args.dependency.strip()
+    chat_id = os.environ.get("DUCTOR_CHAT_ID", "")
+    topic_id = os.environ.get("DUCTOR_TOPIC_ID", "")
+    transport = os.environ.get("DUCTOR_TRANSPORT", "tg")
+    if chat_id:
+        job["chat_id"] = int(chat_id)
+    if topic_id:
+        job["topic_id"] = int(topic_id)
+    job["transport"] = transport
     data["jobs"].append(job)
     save_jobs(JOBS_PATH, data)
 
