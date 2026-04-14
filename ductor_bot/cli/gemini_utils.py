@@ -71,11 +71,21 @@ def find_gemini_cli_js() -> str | None:
 def discover_gemini_models() -> frozenset[str]:
     """Discover Gemini models from the installed Gemini CLI config files.
 
-    The canonical source is ``gemini-cli-core/dist/src/config/models.js``,
-    generated from upstream ``models.ts`` in the Gemini CLI project.
+    Two layouts are supported:
+
+    1. Older releases ship ``gemini-cli-core/dist/src/config/models.js`` as
+       a separate ESM module that re-exports ``VALID_GEMINI_MODELS``.
+    2. ``@google/gemini-cli`` ≥ 0.37 ships everything as a pre-bundled
+       ``bundle/*.js`` set; the model list lives inside one of the hashed
+       chunks as ``VALID_GEMINI_MODELS = new Set([...])`` referencing
+       ``const`` identifiers defined in the same file.
     """
     for models_js in _gemini_models_js_candidates():
         models = _discover_models_from_models_js(models_js)
+        if models:
+            return models
+    for bundle_js in _gemini_bundle_candidates():
+        models = _discover_models_from_bundle(bundle_js)
         if models:
             return models
     return frozenset()
@@ -354,6 +364,106 @@ def _find_node_binary() -> str | None:
 def _extract_models_from_text(content: str) -> set[str]:
     pattern = re.compile(r"""['"]((?:auto-)?gemini-[\w.\-]+)['"]""")
     return set(pattern.findall(content))
+
+
+# Matches `VALID_GEMINI_MODELS = new Set([...])`, tolerating an optional
+# `/* @__PURE__ */` annotation inserted by esbuild.
+_VALID_GEMINI_SET_RE = re.compile(
+    r"VALID_GEMINI_MODELS\s*=\s*(?:/\*[^*]*\*/\s*)?new\s+Set\s*\(\s*\[(.*?)\]\s*\)",
+    re.DOTALL,
+)
+_UPPER_IDENT_RE = re.compile(r"\b([A-Z][A-Z0-9_]*)\b")
+
+
+def _extract_models_from_valid_set(content: str) -> set[str]:
+    """Resolve identifiers listed inside ``VALID_GEMINI_MODELS = new Set([...])``.
+
+    Each identifier is looked up in *content* via
+    ``IDENT = "gemini-..."`` (with or without ``const``/``var``).
+    Identifiers that cannot be resolved are silently skipped.
+    """
+    set_block = _VALID_GEMINI_SET_RE.search(content)
+    if not set_block:
+        return set()
+    idents = _UPPER_IDENT_RE.findall(set_block.group(1))
+    if not idents:
+        return set()
+
+    found: set[str] = set()
+    for ident in dict.fromkeys(idents):
+        ident_re = re.compile(
+            r"\b" + re.escape(ident) + r"""\s*=\s*['"]((?:auto-)?gemini-[\w.\-]+)['"]"""
+        )
+        match = ident_re.search(content)
+        if match:
+            found.add(match.group(1))
+    return found
+
+
+def _gemini_bundle_candidates() -> tuple[Path, ...]:
+    """Return ``bundle/*.js`` files of an installed ``@google/gemini-cli``.
+
+    Newer releases ship the model list inside one of the hashed chunks
+    instead of a stable ``models.js`` location.
+    """
+    candidates: list[Path] = []
+    for bundle_root in _gemini_bundle_roots():
+        try:
+            candidates.extend(p for p in sorted(bundle_root.glob("*.js")) if p.is_file())
+        except OSError:
+            continue
+
+    seen: set[Path] = set()
+    deduped: list[Path] = []
+    for path in candidates:
+        if path in seen:
+            continue
+        seen.add(path)
+        deduped.append(path)
+    return tuple(deduped)
+
+
+def _gemini_bundle_roots() -> list[Path]:
+    roots: list[Path] = []
+
+    npm_root = _npm_global_root()
+    if npm_root is not None:
+        roots.append(npm_root / "@google" / "gemini-cli" / "bundle")
+
+    try:
+        cli_path = Path(find_gemini_cli()).resolve()
+    except (FileNotFoundError, OSError):
+        cli_path = None
+
+    if cli_path is not None:
+        pkg_root = _find_gemini_cli_package_root(cli_path)
+        if pkg_root is not None:
+            roots.append(pkg_root / "bundle")
+
+        node_version_dir = cli_path.parent.parent
+        roots.append(
+            node_version_dir / "lib" / "node_modules" / "@google" / "gemini-cli" / "bundle"
+        )
+        roots.append(cli_path.parent / "node_modules" / "@google" / "gemini-cli" / "bundle")
+
+    seen: set[Path] = set()
+    deduped: list[Path] = []
+    for root in roots:
+        if root in seen:
+            continue
+        seen.add(root)
+        deduped.append(root)
+    return deduped
+
+
+def _discover_models_from_bundle(bundle_js: Path) -> frozenset[str]:
+    try:
+        content = bundle_js.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return frozenset()
+    if "VALID_GEMINI_MODELS" not in content:
+        return frozenset()
+    return frozenset(sorted(_extract_models_from_valid_set(content)))
 
 
 def _extract_models_from_source_map(models_js: Path) -> set[str]:

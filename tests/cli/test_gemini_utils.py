@@ -186,6 +186,51 @@ class TestDiscoverGeminiModels:
             result = discover_gemini_models()
             assert result == frozenset()
 
+    def test_from_prebundled_chunk(self, tmp_path: Path) -> None:
+        """Newer @google/gemini-cli ships a bundle/*.js chunk instead of models.js."""
+        bundle_dir = tmp_path / "@google" / "gemini-cli" / "bundle"
+        bundle_dir.mkdir(parents=True)
+
+        # Mimic the real chunk layout from @google/gemini-cli 0.37.x:
+        # const-style identifiers defined first, then a Set referencing them.
+        chunk = bundle_dir / "chunk-ABC123.js"
+        chunk.write_text(
+            'var DEFAULT_GEMINI_MODEL = "gemini-2.5-pro";\n'
+            'var DEFAULT_GEMINI_FLASH_MODEL = "gemini-2.5-flash";\n'
+            'var DEFAULT_GEMINI_FLASH_LITE_MODEL = "gemini-2.5-flash-lite";\n'
+            'var PREVIEW_GEMINI_MODEL = "gemini-3-pro-preview";\n'
+            'var PREVIEW_GEMINI_FLASH_MODEL = "gemini-3-flash-preview";\n'
+            "var VALID_GEMINI_MODELS = /* @__PURE__ */ new Set([\n"
+            "  PREVIEW_GEMINI_MODEL,\n"
+            "  PREVIEW_GEMINI_FLASH_MODEL,\n"
+            "  DEFAULT_GEMINI_MODEL,\n"
+            "  DEFAULT_GEMINI_FLASH_MODEL,\n"
+            "  DEFAULT_GEMINI_FLASH_LITE_MODEL\n"
+            "]);\n"
+            'var DEFAULT_GEMINI_MODEL_AUTO = "auto-gemini-2.5";\n'  # not in Set
+            'var IRRELEVANT = "gemini-1.0-legacy";\n'  # not referenced
+        )
+        # Distractor file in the same bundle dir without the marker.
+        (bundle_dir / "chunk-OTHER.js").write_text("// nothing relevant here\n")
+
+        with (
+            patch("ductor_bot.cli.gemini_utils.which", return_value="/usr/bin/npm"),
+            patch(
+                "ductor_bot.cli.gemini_utils.subprocess.check_output",
+                return_value=str(tmp_path),
+            ),
+        ):
+            result = discover_gemini_models()
+
+        assert "gemini-2.5-pro" in result
+        assert "gemini-2.5-flash" in result
+        assert "gemini-2.5-flash-lite" in result
+        assert "gemini-3-pro-preview" in result
+        assert "gemini-3-flash-preview" in result
+        # Strings outside the Set are intentionally excluded.
+        assert "auto-gemini-2.5" not in result
+        assert "gemini-1.0-legacy" not in result
+
 
 class TestTrustWorkspace:
     def test_creates_file(self, tmp_path: Path) -> None:
