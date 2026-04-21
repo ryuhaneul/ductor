@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -10,8 +11,11 @@ from ductor_bot.messenger.telegram.message_dispatch import (
     _REACTION_DEFAULT,
     _REACTION_SYSTEM,
     _REACTION_THINKING,
+    NonStreamingDispatch,
     ReactionTracker,
+    run_non_streaming_message,
 )
+from ductor_bot.session.key import SessionKey
 
 
 def _make_bot() -> MagicMock:
@@ -95,6 +99,63 @@ async def test_reaction_tracker_swallows_errors() -> None:
 
     # Every call still attempted the bot API — it just did not propagate.
     assert bot.set_message_reaction.await_count >= 1
+
+
+async def test_non_streaming_reacts_on_trigger_message_not_reply_to() -> None:
+    """MED #10: reaction anchors on the user's current trigger, not reply_to.
+
+    Previously ``run_non_streaming_message`` used ``reply_to.message_id``
+    for the tracker. When ``reply_to`` pointed at a prior bot message
+    (e.g., the message quoted in a user reply) the reaction landed on the
+    wrong message, diverging from the streaming path which always uses
+    the current trigger.
+    """
+    bot = _make_bot()
+
+    trigger = MagicMock()
+    trigger.message_id = 777  # user's current message
+
+    replied_to = MagicMock()
+    replied_to.message_id = 123  # prior bot message the user replied to
+
+    scene = MagicMock()
+    scene.status_reaction = True
+    scene.technical_footer = False
+
+    orchestrator = MagicMock()
+    result = MagicMock()
+    result.text = "reply"
+    result.model_name = None
+    orchestrator.handle_message = AsyncMock(return_value=result)
+
+    dispatch = NonStreamingDispatch(
+        bot=bot,
+        orchestrator=orchestrator,
+        key=SessionKey(chat_id=1),
+        text="hello",
+        allowed_roots=[Path("/tmp")],
+        message=trigger,
+        reply_to=replied_to,
+        scene_config=scene,
+    )
+
+    with (
+        patch(
+            "ductor_bot.messenger.telegram.message_dispatch.send_rich",
+            new_callable=AsyncMock,
+        ),
+        patch("ductor_bot.messenger.telegram.message_dispatch.TypingContext") as typing_ctx,
+    ):
+        typing_ctx.return_value.__aenter__ = AsyncMock()
+        typing_ctx.return_value.__aexit__ = AsyncMock()
+        await run_non_streaming_message(dispatch)
+
+    # Every reaction call must target the trigger message, never reply_to.
+    assert bot.set_message_reaction.await_count >= 1
+    for call in bot.set_message_reaction.call_args_list:
+        assert call.kwargs["message_id"] == 777, (
+            f"expected reaction on trigger (777), got {call.kwargs['message_id']}"
+        )
 
 
 if __name__ == "__main__":  # pragma: no cover

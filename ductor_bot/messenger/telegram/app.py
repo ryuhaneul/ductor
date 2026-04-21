@@ -1441,7 +1441,12 @@ class TelegramBot:
         *,
         thread_id: int | None = None,
     ) -> None:
-        """Non-streaming flow: one-shot orchestrator call -> Telegram delivery."""
+        """Non-streaming flow: one-shot orchestrator call -> Telegram delivery.
+
+        ``reply_to`` doubles as the user's trigger message (passed as
+        ``message`` so the reaction tracker anchors consistently with the
+        streaming path — MED #10).
+        """
         await run_non_streaming_message(
             NonStreamingDispatch(
                 bot=self._bot,
@@ -1449,6 +1454,7 @@ class TelegramBot:
                 key=key,
                 text=text,
                 allowed_roots=self.file_roots(self._orch.paths),
+                message=reply_to,
                 reply_to=reply_to,
                 thread_id=thread_id,
                 scene_config=self._config.scene,

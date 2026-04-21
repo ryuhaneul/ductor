@@ -145,13 +145,23 @@ def _status_reaction_enabled(scene: SceneConfig | None) -> bool:
 
 @dataclass(slots=True)
 class NonStreamingDispatch:
-    """Input payload for one non-streaming message turn."""
+    """Input payload for one non-streaming message turn.
+
+    ``message`` is the user's current trigger (text message, callback query
+    message, or ``None`` for inline commands). It anchors the reaction
+    tracker so reactions always land on the message that initiated the
+    turn — mirroring ``StreamingDispatch.message`` (MED #10).
+
+    ``reply_to`` is the optional reply-to destination for the outgoing
+    Telegram message. Usually the same as ``message`` but can differ.
+    """
 
     bot: Bot
     orchestrator: Orchestrator
     key: SessionKey
     text: str
     allowed_roots: list[Path] | None
+    message: Message | None = None
     reply_to: Message | None = None
     thread_id: int | None = None
     scene_config: SceneConfig | None = None
@@ -176,7 +186,11 @@ async def run_non_streaming_message(
     dispatch: NonStreamingDispatch,
 ) -> str:
     """Execute one non-streaming turn and deliver the result to Telegram."""
-    reaction_target = dispatch.reply_to
+    # MED #10: anchor the reaction tracker on the user's current trigger
+    # message (``dispatch.message``), mirroring the streaming path. Using
+    # ``reply_to`` instead risked landing reactions on a prior bot message
+    # when a callback query repurposed ``reply_to`` for the outgoing reply.
+    reaction_target = dispatch.message
     tracker = ReactionTracker(
         dispatch.bot,
         dispatch.key.chat_id,
