@@ -3,8 +3,8 @@
 </p>
 
 <p align="center">
-  <strong>Claude Code, Codex CLI, and Gemini CLI as your coding assistant — on Telegram.</strong><br>
-  Uses only official CLIs. Nothing spoofed, nothing proxied. Matrix and more via plugin system.
+  <strong>Claude Code, Codex CLI, and Gemini CLI as your coding assistant — on Telegram and Matrix.</strong><br>
+  Uses only official CLIs. Nothing spoofed, nothing proxied. Multi-transport, automation, and sub-agents in one runtime.
 </p>
 
 <p align="center">
@@ -23,7 +23,7 @@
 
 ---
 
-If you want to control Claude Code, Google's Gemini CLI, or OpenAI's Codex CLI via Telegram, build automations, or manage multiple agents easily — ductor is the right tool for you. Additional messengers (Matrix, and more to come) are supported via a modular plugin system.
+If you want to control Claude Code, Google's Gemini CLI, or OpenAI's Codex CLI via Telegram or Matrix, build automations, or manage multiple agents easily — ductor is the right tool for you. The messaging layer is modular: Telegram and Matrix ship today, and new transports plug into the same transport-agnostic core.
 
 ductor runs on your machine and sends simple console commands as if you were typing them yourself, so you can use your active subscriptions (Claude Max, etc.) directly. No API proxying, no SDK patching, no spoofed headers. Just the official CLIs, executed as subprocesses, with all state kept in plain JSON and Markdown under `~/.ductor/`.
 
@@ -49,6 +49,16 @@ The onboarding wizard handles CLI checks, transport setup (Telegram or Matrix), 
 For Matrix support: `ductor install matrix` — see [Matrix setup guide](docs/matrix-setup.md).
 
 Detailed setup: [`docs/installation.md`](docs/installation.md)
+
+## New in v0.16.0
+
+- **Memory maintenance is now built in** — streaming compaction boundaries can trigger a silent memory flush, optional reflection hook, and LLM-driven `MAINMEMORY.md` compaction.
+- **Telegram UX is tighter** — stage-based emoji status reactions are enabled by default, while `seen_reaction` remains available as the simpler one-shot alternative.
+- **Lifecycle notifications are routable** — startup and upgrade notices can be pinned to specific chats/topics instead of always broadcasting.
+- **Media transcription is extensible** — bundled media tools now accept external audio/video transcription commands via config-driven env-var hand-off.
+- **Task and multi-agent automation got sharper** — background tasks support priorities, and `ask_agent_async.py` now supports `--reply-to` and `--silent` for cleaner pipelines.
+
+Release summary: [`docs/release_notes_v0.16.0.md`](docs/release_notes_v0.16.0.md)
 
 ## How chats work
 
@@ -196,10 +206,15 @@ Main chat:  "Ask codex-agent to write tests for the API"
 - **Real-time streaming** — live message edits (Telegram) or segment-based output (Matrix)
 - **Provider switching** — `/model` to change provider/model (never blocks, even during active processes)
 - **Persistent memory** — plain Markdown files that survive across sessions
+- **Memory maintenance** — pre-compaction flush, optional reflection cadence, and LLM-driven compaction
 - **Cron jobs** — in-process scheduler with timezone support, per-job overrides, result routing to originating chat
 - **Webhooks** — `wake` (inject into active chat) and `cron_task` (isolated task run) modes
 - **Heartbeat** — proactive checks with per-target settings, group/topic support, chat validation
 - **Image processing** — auto-resize and WebP conversion for incoming images (configurable)
+- **Media transcription hooks** — configurable external audio/video transcription commands for bundled media tools
+- **Notification routing** — startup/upgrade lifecycle messages can target specific chats/topics
+- **Task priorities** — `interactive`, `background`, and `batch` scheduling modes for background work
+- **Telegram status reactions** — stage-aware emoji tracker on the user message while the agent works
 - **Config hot-reload** — most settings update without restart (including language, scene, image)
 - **Docker sandbox** — optional sidecar container with configurable host mounts
 - **Service manager** — Linux (systemd), macOS (launchd), Windows (Task Scheduler)
@@ -222,7 +237,7 @@ Both transports can run **in parallel** on the same agent:
 {"transports": ["telegram", "matrix"]}
 ```
 
-### Plugin system for additional messengers
+### Modular transport architecture
 
 Each messenger is a self-contained module under `messenger/<name>/` implementing a
 shared `BotProtocol`. The core (orchestrator, sessions, CLI, cron, etc.) is completely
@@ -252,6 +267,8 @@ All three are **hot-reloadable** — edit `config.json` and changes take effect 
 > **Privacy Mode:** Telegram bots have Privacy Mode enabled by default and only see `/commands` in groups. To let the bot see all messages, make it a **group admin** or disable Privacy Mode via BotFather (`/setprivacy` → Disable). If changed after joining, remove and re-add the bot.
 
 **Group management:** When the bot is added to a group not in `allowed_group_ids`, it warns and auto-leaves. Use `/where` to see tracked groups and their IDs.
+
+**Channel allowlist:** Telegram channels are tracked separately via `allowed_channel_ids`. Unauthorized channels are announced and auto-left on join/audit just like unauthorized groups.
 
 > **Tip — adding a group for the first time:**
 > 1. Create a Telegram group, enable topics if you want isolated chats
@@ -302,7 +319,7 @@ This is **hot-reloadable** — change the language without restarting the bot.
 | Command | Description |
 |---|---|
 | `/model` | Interactive model/provider selector |
-| `/new` | Reset active provider session |
+| `/new` | Reset the configured default-provider session for this chat/topic |
 | `/stop` | Stop current message and discard queued messages |
 | `/interrupt` | Interrupt current message, queued messages continue |
 | `/stop_all` | Kill everything — all messages, sessions, tasks, all agents |
@@ -320,6 +337,8 @@ This is **hot-reloadable** — change the language without restarting the bot.
 | `/where` | Show tracked chats/groups |
 | `/leave <id>` | Manually leave a group |
 | `/info` | Version + links |
+
+`/new` is intentionally a factory reset for the current `SessionKey`: it clears the bucket tied to the configured default model/provider for that chat or topic, not whichever provider you last switched to temporarily via `/model`.
 
 ## Common CLI commands
 
@@ -395,6 +414,7 @@ Full config reference: [`docs/config.md`](docs/config.md) — full example with 
 | [Developer Quickstart](docs/developer_quickstart.md) | Quickest path for contributors |
 | [Architecture](docs/architecture.md) | Startup, routing, streaming, callbacks |
 | [Configuration](docs/config.md) | Config schema and merge behavior |
+| [Release Notes v0.16.0](docs/release_notes_v0.16.0.md) | Change summary since `v0.15.0` |
 | [Matrix Setup](docs/matrix-setup.md) | Adding Matrix as transport |
 | [Automation](docs/automation.md) | Cron, webhooks, heartbeat setup |
 | [Service Management](docs/modules/service_management.md) | systemd, launchd, Task Scheduler backends |

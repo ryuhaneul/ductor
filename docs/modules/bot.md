@@ -95,11 +95,12 @@ Implications:
 
 `ChatTracker` stores activity in `~/.ductor/chat_activity.json`.
 
-- join/reject/leave events are persisted
-- `/where` shows active/rejected/left groups
+- join/reject/leave events are persisted for both groups and channels
+- `/where` shows active/rejected/left tracked chats, including channels
 - `/leave <group_id>` lets an authorized user force leave
-- startup and periodic (24h) group audits auto-leave groups no longer in `allowed_group_ids`
+- startup and periodic (24h) audits auto-leave groups no longer in `allowed_group_ids` and channels no longer in `allowed_channel_ids`
 - auth hot-reload (`allowed_group_ids`) triggers immediate audit task
+- `allowed_channel_ids` is supported by the bot runtime and audit path, but config hot-reload does not currently emit that field, so channel allowlist changes still need restart in practice
 
 ## Message dispatch (`message_dispatch.py`)
 
@@ -116,11 +117,18 @@ Implications:
 `run_streaming_message()`:
 
 - stream editor + `StreamCoalescer`
+- optional `ReactionTracker` on the original Telegram message when `scene.status_reaction=true`
 - forward text/tool/system callbacks
 - finalize editor
 - fallback rules:
   - stream fallback or empty stream -> `send_rich(full_text)`
   - otherwise send only extracted files from final text
+
+Reaction behavior:
+
+- `ReactionTracker` maps thinking/system/tool stages to Telegram-safe emoji and dedups consecutive identical states
+- reactions are best-effort and are always cleared at the end of the turn
+- when `scene.status_reaction=false` and `scene.seen_reaction=true`, the app falls back to the older one-shot seen reaction instead
 
 ## Callback routing
 
@@ -170,6 +178,11 @@ Startup performs, in order:
 6. recovery planner actions
 7. command sync + restart marker watcher
 8. group audit startup + periodic audit loop
+
+Notification routing during startup is transport-owned:
+
+- startup/restart notices use `notifications.startup_targets` when configured, otherwise they broadcast to allowed users
+- upgrade-available notices use `notifications.upgrade_targets` when configured, otherwise they broadcast normally
 
 ## File safety
 

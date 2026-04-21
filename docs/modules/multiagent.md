@@ -111,10 +111,20 @@ Shared across process:
 
 Recipient processing uses deterministic named session `ia-<sender>`.
 
+Async send metadata currently supports:
+
+- `new_session`
+- `summary`
+- `chat_id` / `topic_id` for result routing back to the correct Telegram topic
+- `reply_to` to deliver the final async result to a specific agent instead of the sender field
+- `silent` to suppress the recipient-side "async task received" notification
+
 Provider-switch safeguard:
 
 - if recipient provider changed since prior `ia-<sender>` session, old session is ended and recreated
 - provider-switch notice is surfaced back to sender side
+- when `reply_to` is set, async result handler lookup uses that agent name instead of `sender`
+- recipient notifications are skipped when `silent=true` or `reply_to` is set
 
 ### Local HTTP bridge for tool scripts
 
@@ -130,6 +140,8 @@ Inter-agent endpoints:
 - `GET /interagent/agents`
 - `GET /interagent/health`
 
+`POST /interagent/send_async` accepts the same routing fields as `AsyncSendOptions`, including `reply_to` and `silent`.
+
 Task endpoints (shared hub):
 
 - `POST /tasks/create`
@@ -140,6 +152,8 @@ Task endpoints (shared hub):
 - `POST /tasks/delete`
 
 Ownership checks apply for resume/cancel/delete when `from=<agent>` is present.
+
+`POST /tasks/create` also accepts `priority=interactive|background|batch`.
 
 ## TaskHub integration
 
@@ -152,6 +166,12 @@ When enabled, supervisor wires each stack into shared `TaskHub`:
 - agent primary chat ID mapping
 
 This enables task submission from any agent while preserving owner routing.
+
+Priority behavior is shared across agents:
+
+- `interactive` bypasses the per-chat concurrency cap
+- `background` is the default
+- `batch` keeps the same cap semantics as `background` but documents low-urgency work explicitly
 
 ## Shared knowledge sync
 

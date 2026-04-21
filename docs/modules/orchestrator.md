@@ -14,6 +14,7 @@ Central routing layer between ingress transports (Telegram/Matrix/API) and CLI e
 - `orchestrator/flows.py`: normal/streaming/named-session/heartbeat flows
 - `orchestrator/directives.py`: leading `@...` parser
 - `orchestrator/hooks.py`: message hooks (`MAINMEMORY_REMINDER`, delegation hints)
+- `orchestrator/memory_flush.py`: silent pre-compaction memory flush + optional `MAINMEMORY.md` compaction
 - `orchestrator/selectors/*`: model/cron/session/task selector modules + selector types
 
 ## Why it was split
@@ -34,7 +35,7 @@ High-level steps:
 1. resolve paths + set main-agent `DUCTOR_HOME`
 2. optional Docker setup + Docker skill resync
 3. runtime environment injection into workspace rule files
-4. instantiate `Orchestrator`
+4. instantiate `Orchestrator` (sessions, CLI service, hook registry, optional memory flusher)
 5. provider auth detection + available-provider update
 6. initialize Gemini/Codex cache observers
 7. initialize/start task observers (`Background`, `Cron`, `Webhook`) + `Heartbeat` + `Cleanup`
@@ -72,6 +73,9 @@ Common path:
 Registered command handlers:
 
 - `/new`, `/status`, `/model`, `/memory`, `/cron`, `/diagnose`, `/upgrade`, `/sessions`, `/tasks`
+
+`/new` resets only the currently configured provider bucket for the active `SessionKey`.
+Other provider buckets for the same chat/topic remain intact.
 
 `/model` never blocks: it always executes immediately (bypasses the sequential queue) and shows current model info if a CLI process is active in the chat.
 
@@ -122,8 +126,11 @@ Important model-selector behavior:
 - provider-isolated session buckets
 - optional new-session system prompt append (`MAINMEMORY.md`)
 - in-flight foreground turn tracking
+- `CompactBoundaryEvent` marks a pre-compaction boundary; after a successful user turn the optional `MemoryFlusher` may run a silent follow-up flush turn and, when configured, a compaction turn
 - single automatic recovery retry on SIGKILL/invalid resumed session
+- stale-session detection currently covers CLI errors such as `invalid session`, `session not found`, and `no conversation found`
 - session update on success
+- successful tool-only / empty turns are converted into a neutral visible status line instead of disappearing
 
 ### Named session flow
 
@@ -147,6 +154,11 @@ Shared helper `_inject_prompt(...)` is used by:
 
 All injection paths respect `topic_id` when provided.
 
+Inter-agent ingress also lives in `injection.py`:
+
+- deterministic named sessions use `ia-<sender>`
+- if the provider CLI rejects a stored inter-agent session after an update/cache clear, the orchestrator ends that named session, retries once with a fresh session, and surfaces a visible recovery notice back to the caller
+
 ## Observer and bus wiring
 
 `Orchestrator.wire_observers_to_bus(bus, wake_handler=...)`:
@@ -165,11 +177,15 @@ Observer manager owns lifecycle for:
 
 ## Config hot-reload impact
 
-`_on_config_hot_reload(...)` updates runtime services for hot fields:
+`_on_config_hot_reload(...)` updates orchestrator-owned runtime services for hot fields:
 
-- CLI defaults (`model`, `provider`, limits, permission, reasoning, CLI args)
-- known model IDs refresh
-- external bot callback for auth/group updates
+- CLI defaults (`model`, `provider`, `max_turns`, `max_budget_usd`, `permission_mode`, `reasoning_effort`, provider CLI args)
+- provider known-model cache refresh when `model` changes
+- i18n re-init when `language` changes
+- heartbeat observer start/stop when `heartbeat.enabled` flips
+- external bot callback for transport-owned hot fields such as auth/group updates
+
+`ConfigReloader` classifies additional top-level fields as hot globally, but fields such as `notifications`, `transcription`, and memory-maintenance settings still require restart today because they are not emitted as orchestrator hot updates.
 
 Restart-required fields are surfaced via reloader callback logging.
 

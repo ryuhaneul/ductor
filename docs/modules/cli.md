@@ -36,11 +36,24 @@ Provider-agnostic CLI execution layer for Claude Code, Codex, and Gemini.
 5. provider executes subprocess and returns `CLIResponse`.
 6. service converts to `AgentResponse`.
 
-Environment variables injected into every CLI subprocess (`executor.py` and `docker_wrap`):
+Environment variables injected into CLI subprocesses:
 
 - `DUCTOR_CHAT_ID`
 - `DUCTOR_TOPIC_ID` (when set)
 - `DUCTOR_TRANSPORT` (active transport identifier, e.g. `"tg"`, `"mx"`)
+- `DUCTOR_AGENT_NAME`
+- `DUCTOR_INTERAGENT_PORT`
+- `DUCTOR_HOME`
+- `DUCTOR_SHARED_MEMORY_PATH`
+- `DUCTOR_TRANSCRIBE_COMMAND` / `DUCTOR_VIDEO_TRANSCRIBE_COMMAND` when external transcription hooks are configured
+
+Host subprocesses additionally get:
+
+- `DUCTOR_AGENT_ROLE` (`main` or `sub`)
+
+Docker-wrapped subprocesses additionally get:
+
+- `DUCTOR_INTERAGENT_HOST=host.docker.internal`
 
 ## Main-chat CLI parameters
 
@@ -81,6 +94,7 @@ Normalized events in `stream_events.py` include:
 `CLIService.execute_streaming()` behavior:
 
 - routes deltas/events to callbacks,
+- forwards `CompactBoundaryEvent` through `on_compact_boundary` so the orchestrator can trigger silent memory-flush follow-up work,
 - checks `ProcessRegistry.was_aborted(chat_id)` on each event,
 - if stream fails or lacks final result event:
   - aborted -> empty result,
@@ -171,7 +185,10 @@ Statuses: `AUTHENTICATED`, `INSTALLED`, `NOT_FOUND`.
 - `has_active(chat_id, topic_id=None)`: when `topic_id` is given, only processes for that specific topic are considered active; otherwise any process for the chat qualifies
 - abort markers (`was_aborted`, `clear_abort`)
 - `kill_all(chat_id)`
+- `kill_for_task(task_id)` for background-task cancellation
 - stale wall-clock cleanup (`kill_stale`)
+
+`TaskHub` uses `kill_for_task(task_id)` before cancelling the asyncio task so streaming subprocess pipes unblock cleanly.
 
 Windows uses process-tree termination (`taskkill /F /T`) to avoid orphaned child processes.
 
@@ -182,7 +199,7 @@ Windows uses process-tree termination (`taskkill /F /T`) to avoid orphaned child
 - host mode (`config.docker_container == ""`): return original command + resolved local cwd
 - container mode:
   - wraps command as `docker exec ... <container> ...`,
-  - injects `DUCTOR_CHAT_ID`, optional `DUCTOR_TOPIC_ID`, `DUCTOR_TRANSPORT`, `DUCTOR_AGENT_NAME`, `DUCTOR_INTERAGENT_PORT`, `DUCTOR_HOME`, `DUCTOR_SHARED_MEMORY_PATH`, and `DUCTOR_INTERAGENT_HOST`,
+  - injects `DUCTOR_CHAT_ID`, optional `DUCTOR_TOPIC_ID`, `DUCTOR_TRANSPORT`, `DUCTOR_AGENT_NAME`, `DUCTOR_INTERAGENT_PORT`, `DUCTOR_HOME`, `DUCTOR_SHARED_MEMORY_PATH`, `DUCTOR_INTERAGENT_HOST`, and optional transcription hook vars,
   - merges user secrets from `~/.ductor/.env` (never overrides existing vars),
   - forwards optional env vars via `-e` flags (`extra_env`, overrides `.env`),
   - uses `-i` when `interactive=True` (required for stdin-fed providers like Gemini),

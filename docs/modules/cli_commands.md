@@ -25,7 +25,7 @@ This keeps lifecycle logic testable and prevents command monolith growth.
 ## Command groups
 
 - lifecycle: `ductor`, `stop`, `restart`, `upgrade`, `uninstall`, onboarding/reset flow
-- status/help: `ductor status`, `ductor help`
+- status/help/version: `ductor status`, `ductor help`, `ductor --version` / `-V`
 - service: install/status/start/stop/logs/uninstall wrapper for platform backends
 - docker: enable/disable/rebuild/mount/unmount/mounts/extras/extras-add/extras-remove
 - api: enable/disable direct WebSocket API block in config
@@ -38,6 +38,7 @@ This keeps lifecycle logic testable and prevents command monolith growth.
 - `start_bot()` calls `load_config()` and starts `AgentSupervisor` via `run_bot()`.
 - `ductor agents add <name>` is an interactive Telegram-focused scaffold; Matrix sub-agents are configured via `agents.json` or the bundled agent tool scripts.
 - `ductor restart` always runs `stop_bot()` and then re-execs the current process.
+- `ductor --version` / `-V` exits immediately from `__main__.py` without touching config loading or runtime startup.
 - exit code `42` is the in-app runtime/supervisor restart signal (`/restart`, service-managed restarts), not the behavior of the CLI `ductor restart` command.
 - `status.py` currently counts errors from latest `ductor*.log`; runtime primary log file is `~/.ductor/logs/agent.log`.
 

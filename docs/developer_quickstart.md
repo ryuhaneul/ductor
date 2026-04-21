@@ -142,10 +142,12 @@ If API is wrong:
 ## 7) Behavior details to remember
 
 - `/stop` and `/stop_all` are pre-routing abort paths in middleware/bot.
-- `/new` resets only active provider bucket for the active `SessionKey`.
+- `/new` resets the configured default-provider bucket for the active `SessionKey`.
 - session identity is transport-aware: `SessionKey(transport, chat_id, topic_id)`.
 - `/model` inside a topic updates only that topic session (not global config).
 - task tools now support permanent single-task removal via `delete_task.py` (`/tasks/delete`).
+- `create_task.py --priority interactive|background|batch` controls whether a task bypasses the per-chat concurrency cap.
+- `ask_agent_async.py` supports `--reply-to AGENT` and `--silent` for automated multi-agent pipelines.
 - task routing is topic-aware via `thread_id` and `DUCTOR_TOPIC_ID`.
 - API auth accepts optional `channel_id` for per-channel session isolation.
 - startup recovery uses `inflight_turns.json` + recovered named sessions.

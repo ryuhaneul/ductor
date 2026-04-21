@@ -78,6 +78,8 @@ buttons vs. reaction buttons, etc.
 
 `supports_seen_indicator` signals whether the transport can acknowledge incoming messages with a "seen" indicator. Telegram uses an emoji reaction; Matrix uses a read receipt. The feature is gated by `config.scene.seen_reaction` -- even when the capability is `True`, seen indicators are only sent when enabled in config.
 
+Telegram's newer stage-based `scene.status_reaction` behavior is intentionally transport-specific and currently lives in `messenger/telegram/message_dispatch.py`; it is not modeled through `supports_reactions`.
+
 ## Transport Registry
 
 `create_bot()` (`registry.py`) is the single entry point for bot
@@ -115,6 +117,11 @@ protocol with two methods:
 Both `TelegramNotificationService` and `MatrixNotificationService`
 implement this protocol. The supervisor and bus use it without
 knowing which transport is active.
+
+Transport-specific startup/update routing sits above this protocol:
+
+- Telegram routes startup notices through `notifications.startup_targets` and upgrade notices through `notifications.upgrade_targets` when those lists contain enabled targets
+- Matrix currently routes startup/restart/update notices through `notify_startup()` and `notifications.startup_targets`; there is no separate Matrix-only upgrade-target path today
 
 ### CompositeNotificationService
 

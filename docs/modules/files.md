@@ -54,6 +54,13 @@ Maps `file_access` to allowed roots:
 
 Builds standardized `[INCOMING FILE]` prompt blocks for agent input.
 
+Current prompt behavior:
+
+- points agents at `tools/media_tools/CLAUDE.md` for file-handling instructions
+- audio/voice files point to `tools/media_tools/transcribe_audio.py --file ...`
+- video files point to `tools/media_tools/process_video.py --file ...`
+- paths are rewritten relative to the workspace when possible so the same prompt works on host and in Docker
+
 ### Image processing (`image_processor.py`)
 
 `process_image(path, *, max_dimension, output_format, quality)` resizes and converts incoming images:
@@ -65,6 +72,12 @@ Builds standardized `[INCOMING FILE]` prompt blocks for agent input.
 - on any processing error, the original file is used as fallback (non-fatal)
 
 Configuration is driven by `config.image` (`ImageConfig`): `max_dimension`, `output_format`, `quality`.
+
+External transcription hand-off:
+
+- `config.transcription.audio_command` is exported to CLI subprocesses as `DUCTOR_TRANSCRIBE_COMMAND`
+- `config.transcription.video_command` is exported as `DUCTOR_VIDEO_TRANSCRIBE_COMMAND`
+- the bundled `tools/media_tools/transcribe_audio.py` and `process_video.py` scripts consume those env vars when present and otherwise fall back to built-in behavior
 
 Applied across all transports:
 

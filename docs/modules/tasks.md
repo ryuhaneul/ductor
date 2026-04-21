@@ -54,6 +54,8 @@ Startup/maintenance behavior:
 - resolves chat ID from `parent_agent` mapping when missing
 - creates registry entry and folder
 - appends mandatory task rules suffix
+- normalizes `priority` to `interactive|background|batch`
+- enforces `max_parallel` only for non-`interactive` tasks
 - spawns async execution
 
 `_run(...)`:
@@ -72,6 +74,11 @@ Resume behavior:
 - allowed from `done|failed|cancelled|waiting`
 - requires stored `session_id` and provider
 - keeps same `task_id` and folder
+
+Cancellation behavior:
+
+- `TaskHub.cancel()` and `cancel_all()` kill the registered subprocess tree first via `ProcessRegistry.kill_for_task(task_id)`
+- only after the subprocess is gone is the asyncio task cancelled, which avoids hanging streaming pipes
 
 ## Topic-aware routing
 
@@ -97,6 +104,7 @@ Behavior details:
 - `/tasks/list?from=<agent>` filters by task owner
 - ownership checks for `/tasks/resume`, `/tasks/cancel`, `/tasks/delete` when `from` is provided
 - `/tasks/delete` only deletes finished tasks (`done|failed|cancelled`)
+- `/tasks/create` accepts `priority`; unknown values coerce to `background`
 
 ## Registry deletion semantics
 
@@ -128,5 +136,7 @@ From task agent context:
 - `list_tasks.py`
 - `cancel_task.py`
 - `delete_task.py`
+
+`create_task.py` supports `--priority interactive|background|batch`.
 
 `delete_task.py TASK_ID` performs permanent removal of one finished task via `/tasks/delete`.

@@ -80,6 +80,12 @@ Switching model/provider for a key:
 
 This enables seamless return to previously used provider buckets.
 
+Consumer-facing nuance:
+
+- `/model` changes the active target for the current `SessionKey`
+- `/new` does not wipe every bucket; the orchestrator resets only the bucket for the provider currently resolved from `config.model`
+- temporary per-turn directives do not change what `/new` resets later unless the session target itself was updated
+
 ## Topic name integration
 
 `SessionManager` can resolve and backfill topic names through a callback:
@@ -111,6 +117,8 @@ Behavior:
 - user-created cap: `MAX_SESSIONS_PER_CHAT = 10`
 - persisted `running` entries are downgraded to `idle` on load
 - recovered-running sessions are tracked for startup recovery
+- inter-agent conversations use deterministic names `ia-<sender>`
+- stale CLI session IDs on those named sessions are retried once with a fresh session after update/cache-clear style failures
 
 ## Persistence
 

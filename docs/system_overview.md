@@ -40,7 +40,7 @@ Telegram:                                 Matrix:
 Notes:
 
 - `/stop` and `/stop_all` are middleware/bot-level abort paths (not orchestrator command dispatch).
-- `/new` resets only the active provider bucket for the active session key.
+- `/new` resets the configured default-provider bucket for the active session key.
 - Telegram groups: both `allowed_group_ids` and `allowed_user_ids` must allow the message.
 - `group_mention_only` behavior differs by transport:
   - Telegram: mention/reply gating only (no auth bypass)
@@ -72,6 +72,11 @@ All observer/task/inter-agent results now flow through `bus/`:
 - route via `MessageBus`
 - optional lock + optional injection into active session
 - deliver through registered transport (Telegram or Matrix)
+
+Streaming nuance:
+
+- when the provider stream emits `CompactBoundaryEvent`, the orchestrator can mark the session for post-turn memory maintenance
+- after a successful streaming turn, `MemoryFlusher` may run a silent flush and then an LLM-driven compaction pass against `MAINMEMORY.md`
 
 Telegram ingress and `MessageBus` share one `LockPool`. `ApiServer` currently uses its own `LockPool`, so API locking is separate from the Telegram/message-bus lock domain.
 

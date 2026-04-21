@@ -151,6 +151,11 @@ Per-topic `/model` behavior:
 - inside a topic, model/provider switch updates that topic session only
 - global config (`config.json` / `agents.json`) is updated only outside topic scope
 
+`/new` behavior:
+
+- `/new` kills active work for the current chat/topic and resets the provider bucket tied to `config.model`
+- it does **not** clear every provider bucket and does not target the last temporary `/model` switch automatically
+
 ## Flow Details
 
 ### Normal and streaming flows (`orchestrator/flows.py`)
@@ -165,12 +170,18 @@ Per-topic `/model` behavior:
 8. session recovery (single retry) on:
    - SIGKILL
    - invalid resumed session
-9. update session metrics and ID on success
-10. clear inflight marker in `finally`
+9. on streaming compaction boundaries: mark session for post-turn memory flush/compaction
+10. update session metrics and ID on success
+11. after successful streaming turn: optional silent memory flush + compaction
+12. clear inflight marker in `finally`
 
 Gemini safeguard:
 
 - if Gemini is in API-key mode and `gemini_api_key` is empty/null, flow returns warning text and skips CLI execution.
+
+Successful empty-result safeguard:
+
+- tool-only successful turns no longer disappear silently; `_finish_normal(...)` substitutes a neutral status line when the provider returns an empty success payload
 
 ### Heartbeat flow
 
@@ -274,3 +285,4 @@ Rule sync:
 - all stacks share one event loop, inter-agent bus, and optional shared task hub
 - async inter-agent results are injected via bus envelopes
 - provider switch during `ia-<sender>` conversations auto-resets that named session and surfaces a provider-switch notice
+- async agent-tool pipelines can route replies explicitly via `reply_to` and suppress recipient noise via `silent`

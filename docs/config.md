@@ -73,6 +73,7 @@ Changes take effect on the next CLI invocation (mtime-based cache invalidation, 
 | `daily_reset_hour` | `int` | `4` | Daily reset boundary hour in `user_timezone` |
 | `daily_reset_enabled` | `bool` | `false` | Enables daily session reset checks |
 | `user_timezone` | `str` | `""` | IANA timezone used by cron/heartbeat/cleanup/session reset |
+| `language` | `str` | `"en"` | UI language for onboarding, commands, status text, and chat-facing system messages |
 | `max_budget_usd` | `float \| None` | `None` | Passed to Claude CLI |
 | `max_turns` | `int \| None` | `None` | Passed to Claude CLI |
 | `max_session_messages` | `int \| None` | `None` | Session rollover limit |
@@ -86,11 +87,15 @@ Changes take effect on the next CLI invocation (mtime-based cache invalidation, 
 | `telegram_token` | `str` | `""` | Telegram bot token (required when `transport=telegram`) |
 | `allowed_user_ids` | `list[int]` | `[]` | Telegram user allowlist (applies in both private and group chats) |
 | `allowed_group_ids` | `list[int]` | `[]` | Telegram group allowlist (which groups the bot can operate in; default `[]` = no groups, fail-closed). In groups, both the group and the user must be allowlisted |
+| `allowed_channel_ids` | `list[int]` | `[]` | Telegram channel allowlist for join/audit behavior; unauthorized channels are auto-left |
 | `group_mention_only` | `bool` | `false` | Mention/reply gating in group rooms. Telegram: filter only (no auth bypass). Matrix: in non-DM rooms this bypasses `allowed_users` and uses room + mention/reply as gate |
 | `matrix` | `MatrixConfig` | see below | Matrix homeserver connection (required when `transport=matrix`) |
 | `streaming` | `StreamingConfig` | see below | Streaming tuning |
 | `docker` | `DockerConfig` | see below | Docker sidecar config |
 | `heartbeat` | `HeartbeatConfig` | see below | Background heartbeat config |
+| `memory_flush` | `MemoryFlushConfig` | see below | Silent pre-compaction memory flush after streaming compact boundaries |
+| `memory_reflection` | `MemoryReflectionConfig` | see below | Optional periodic memory reflection hook |
+| `memory_compaction` | `MemoryCompactionConfig` | see below | LLM-driven `MAINMEMORY.md` compaction policy |
 | `cleanup` | `CleanupConfig` | see below | Daily file-retention cleanup |
 | `webhooks` | `WebhookConfig` | see below | Webhook HTTP server config |
 | `api` | `ApiConfig` | see below | Direct WebSocket API server config |
@@ -99,6 +104,8 @@ Changes take effect on the next CLI invocation (mtime-based cache invalidation, 
 | `timeouts` | `TimeoutConfig` | see below | Path-specific timeout policy (`normal`, `background`, `subagent`) |
 | `tasks` | `TasksConfig` | see below | Delegated background task system (`TaskHub`) |
 | `scene` | `SceneConfig` | see below | Scene indicators and technical footer |
+| `notifications` | `NotificationsConfig` | see below | Targeted startup/upgrade notification routing |
+| `transcription` | `TranscriptionConfig` | see below | External audio/video transcription command hooks |
 | `update_check` | `bool` | `true` | Enables periodic update observer (`UpdateObserver`) |
 | `interagent_port` | `int` | `8799` | Port for internal localhost API (`InternalAgentAPI`) |
 
@@ -312,7 +319,7 @@ When extras are configured, the supervisor startup timeout is dynamically extend
 | `quiet_end` | `int` | `8` | Quiet end hour in `user_timezone` |
 | `prompt` | `str` | default prompt | Multiline default prompt references `MAINMEMORY.md` and `cron_tasks/` |
 | `ack_token` | `str` | `"HEARTBEAT_OK"` | Suppression token |
-| `group_targets` | `list[HeartbeatTarget]` | `[]` | Per-group/topic heartbeat targets with optional overrides |
+| `group_targets` | `list[HeartbeatTarget]` | placeholder list | Runtime default is one disabled placeholder target so new configs show the expected shape immediately |
 
 ### `HeartbeatTarget`
 
@@ -320,6 +327,7 @@ Each entry in `group_targets` identifies a specific group chat (and optional top
 
 | Field | Type | Required | Default | Notes |
 |---|---|---|---|---|
+| `enabled` | `bool` | no | `true` | Target-level master toggle |
 | `chat_id` | `int` | yes | | Target group chat ID |
 | `topic_id` | `int \| None` | no | `None` | Optional forum topic ID within the group |
 | `prompt` | `str \| None` | no | `None` | Per-target prompt override (falls back to global `prompt`) |
@@ -327,6 +335,45 @@ Each entry in `group_targets` identifies a specific group chat (and optional top
 | `interval_minutes` | `int \| None` | no | `None` | Per-target interval override (falls back to global `interval_minutes`) |
 | `quiet_start` | `int \| None` | no | `None` | Per-target quiet-hour start (falls back to global `quiet_start`) |
 | `quiet_end` | `int \| None` | no | `None` | Per-target quiet-hour end (falls back to global `quiet_end`) |
+
+## `MemoryFlushConfig`
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `enabled` | `bool` | `true` | Enables the post-stream silent flush pipeline |
+| `flush_prompt` | `str` | default prompt | Prompt appended as a silent follow-up turn to capture durable facts before memory compaction |
+| `dedup_seconds` | `int` | `300` | In-memory dedup window per `SessionKey` to avoid repeated flushes on back-to-back compact boundaries |
+
+Runtime behavior:
+
+- `CompactBoundaryEvent` from the provider stream marks the session for flush
+- after the user-visible streaming turn succeeds, `MemoryFlusher.maybe_flush(...)` resumes the same CLI session silently
+- errors are logged and swallowed; memory maintenance never blocks the user reply
+
+## `MemoryReflectionConfig`
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `enabled` | `bool` | `false` | Registers the reflection hook only when enabled |
+| `every_n_messages` | `int` | `10` | Hook cadence; fires on the N-th outbound prompt for a session |
+| `prompt` | `str` | default prompt | Silent reflection prompt appended through `MessageHookRegistry` |
+
+Runtime behavior:
+
+- implemented as a normal message hook, not as a background observer
+- complements the always-on `MAINMEMORY_REMINDER` hook rather than replacing it
+
+## `MemoryCompactionConfig`
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `enabled` | `bool` | `true` | Enables LLM-driven compaction after a flush when file size threshold is exceeded |
+| `trigger_lines` | `int` | `70` | `MAINMEMORY.md` line-count threshold that makes compaction eligible |
+| `target_lines` | `int` | `40` | Target post-compaction size used in the prompt template |
+| `preserve_recency_days` | `int` | `14` | Recent entries to preserve verbatim during compaction |
+| `prompt` | `str` | default prompt template | Formatted at runtime with `target_lines` and `preserve_days` |
+
+Compaction runs only after a successful flush and reuses the same provider session as the user turn.
 
 ## `ImageConfig`
 
@@ -343,7 +390,41 @@ Applied to incoming images across all transports (Telegram, Matrix, API). See `f
 | Field | Type | Default | Notes |
 |---|---|---|---|
 | `seen_reaction` | `bool` | `false` | Enables "seen" indicator on incoming messages (Telegram: emoji reaction, Matrix: read receipt) |
+| `status_reaction` | `bool` | `true` | Telegram-only stage tracker on the user message while the turn runs; when enabled it wins over `seen_reaction` so both do not fight over the same emoji slot |
 | `technical_footer` | `bool` | `false` | Appends model/token/cost/time footer to agent responses |
+
+## `NotificationsConfig`
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `startup_targets` | `list[NotificationTarget]` | `[]` | When non-empty and containing at least one enabled target with `chat_id`, startup notices are routed only there |
+| `upgrade_targets` | `list[NotificationTarget]` | `[]` | Same routing rule for update-available notices |
+
+### `NotificationTarget`
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `enabled` | `bool` | `true` | Target-level toggle |
+| `chat_id` | `int \| None` | `None` | Telegram chat ID or Matrix room-mapped int |
+| `topic_id` | `int \| None` | `None` | Telegram forum topic; ignored by Matrix |
+
+Behavior notes:
+
+- empty target lists preserve the old broadcast-to-all behavior
+- Telegram uses dedicated `notify_startup(...)` / `notify_upgrade(...)` helpers
+- Matrix currently implements targeted startup routing only; upgrade-target routing remains Telegram-specific
+
+## `TranscriptionConfig`
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `audio_command` | `str` | `""` | When set, exported as `DUCTOR_TRANSCRIBE_COMMAND` for `tools/media_tools/transcribe_audio.py` |
+| `video_command` | `str` | `""` | When set, exported as `DUCTOR_VIDEO_TRANSCRIBE_COMMAND` for `tools/media_tools/process_video.py` |
+
+Empty strings keep the bundled fallback chain intact:
+
+- audio: external hook -> OpenAI Whisper API -> local `whisper` CLI -> `whisper.cpp`
+- video: external hook -> existing built-in video transcription path
 
 ## `CleanupConfig`
 
@@ -402,9 +483,13 @@ Hot-reloadable top-level fields:
 - `cli_timeout`, `max_budget_usd`, `max_turns`, `max_session_messages`
 - `idle_timeout_minutes`, `session_age_warning_hours`, `daily_reset_hour`, `daily_reset_enabled`
 - `permission_mode`, `file_access`, `user_timezone`
-- `streaming`, `heartbeat`, `cleanup`, `cli_parameters`
+- `streaming`, `heartbeat`, `cleanup`, `cli_parameters`, `scene`, `image`, `language`
 - `allowed_user_ids`, `allowed_group_ids`, `group_mention_only`
-- `timeouts` is currently restart-required (not in hot-reloadable set)
+
+Current non-hot fields that often surprise people:
+
+- `allowed_channel_ids` exists on `AgentConfig` but is not currently classified as hot-reloadable by `ConfigReloader`, so channel allowlist changes still require restart
+- `notifications`, `transcription`, `timeouts`, and `tasks` are restart-required
 
 Observer lifecycle caveat:
 
@@ -416,7 +501,7 @@ Restart-required top-level fields:
 
 - `transport`, `telegram_token`, `matrix`
 - `docker`, `api`, `webhooks`
-- `ductor_home`, `log_level`, `gemini_api_key`, `timeouts`, `tasks`
+- `ductor_home`, `log_level`, `gemini_api_key`, `notifications`, `transcription`, `timeouts`, `tasks`
 
 Restart classification is computed from `AgentConfig` top-level schema fields.
 
@@ -424,7 +509,7 @@ Restart classification is computed from `AgentConfig` top-level schema fields.
 
 `ModelRegistry` (`ductor_bot/config.py`):
 
-- Claude models are hardcoded: `haiku`, `sonnet`, `opus`.
+- Claude models are hardcoded: `haiku`, `sonnet`, `opus`, plus the 1M-context variants `sonnet[1m]` and `opus[1m]` (Claude CLI strips the `[1m]` suffix and sets the 1M-context beta header internally).
 - Gemini aliases are hardcoded: `auto`, `pro`, `flash`, `flash-lite`.
 - Runtime Gemini models are discovered from local Gemini CLI files at startup.
 - Provider resolution (`provider_for(model_id)`):
@@ -533,8 +618,10 @@ Timeout nuance:
 
 - `SubAgentConfig` currently has no dedicated `timeouts` field.
 - `SubAgentConfig` currently has no dedicated `tasks` field.
+- `SubAgentConfig` also has no dedicated `scene`, `notifications`, `transcription`, `language`, or `allowed_channel_ids` fields.
 - sub-agents inherit the main agent `timeouts` block through merge base.
 - sub-agents inherit the main agent `tasks` block through merge base.
+- the same inheritance currently applies to `scene`, `notifications`, `transcription`, `language`, and `allowed_channel_ids`.
 
 Example:
 

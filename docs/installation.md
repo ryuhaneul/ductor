@@ -163,7 +163,7 @@ ductor api enable
 
 This writes/updates the `api` block in `config.json` and generates a token if missing.
 
-`ductor api enable` requires PyNaCl (used for E2E encryption). If it is missing:
+`ductor api enable` requires PyNaCl (used for E2E encryption against the direct API). PyNaCl is **only needed when the direct WebSocket API is enabled** — the core bot, Telegram, and Matrix transports run without it. If it is missing:
 
 ```bash
 # pipx install
