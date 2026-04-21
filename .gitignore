@@ -57,3 +57,5 @@ desktop.ini
 start_bot.sh
 python_best_practice.md
 run.py
+.planning/
+graphify-out/
