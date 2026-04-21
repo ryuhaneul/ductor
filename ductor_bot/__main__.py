@@ -331,6 +331,12 @@ def main() -> None:
     commands = [a for a in args if not a.startswith("-")]
     verbose = "--verbose" in args or "-v" in args
 
+    if "--version" in args or "-V" in args:
+        from ductor_bot import __version__
+
+        _console.print(f"ductor {__version__}")
+        return
+
     if "--help" in args or "-h" in args:
         commands.append("help")
 
