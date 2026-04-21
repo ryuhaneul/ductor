@@ -481,7 +481,12 @@ def _finish_normal(
             return OrchestratorResult(text=t("error.generic", detail=response.result[:500]))
         return OrchestratorResult(text=t("error.check_logs"))
 
-    text = response.result
+    # #84: tool-only turns (agent silently updates memory/files without
+    # generating text) used to return an empty string here -- Telegram's
+    # send_rich then silently dropped the empty message so the user saw
+    # nothing. Substitute a neutral status line so every successful turn
+    # produces visible output. Strategic memory redesign lives in Phase 4.
+    text = response.result if response.result.strip() else t("session.empty_turn")
     if session:
         text += _session_age_note(session, warning_hours)
 

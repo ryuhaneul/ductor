@@ -23,6 +23,8 @@ Envie uma mensagem para continuar."""
 
 age_warning = "[Sessão tem {age} de vida. Use /new para um recomeço.]"
 
+empty_turn = "_(O agente atualizou a memória em silêncio — envie outra mensagem para continuar.)_"
+
 recovered = "_A sessão anterior não pôde ser restaurada. Uma nova sessão foi iniciada automaticamente._"
 sigkill = "A execução foi interrompida. Por favor, envie a mesma solicitação novamente."
 

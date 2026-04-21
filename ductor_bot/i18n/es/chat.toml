@@ -23,6 +23,8 @@ Las sesiones de otros proveedores se han conservado.
 
 age_warning = "[La sesión tiene {age}. Usa /new para empezar de cero.]"
 
+empty_turn = "_(El agente actualizó su memoria en silencio — envía otro mensaje para continuar.)_"
+
 recovered = "_No se pudo restaurar la sesión anterior. Se inició una nueva automáticamente._"
 sigkill = "La ejecución fue interrumpida. Por favor, envía la misma solicitud de nuevo."
 

@@ -684,3 +684,35 @@ def test_is_invalid_session_case_insensitive() -> None:
         is_error=True,
     )
     assert _is_invalid_session(response) is True
+
+
+def test_finish_normal_substitutes_empty_success_with_fallback() -> None:
+    """#84: successful turn with empty result -- e.g. agent spent the turn
+    writing to memory -- must yield a non-empty visible status message so
+    Telegram's send_rich doesn't silently drop the message."""
+    from ductor_bot.i18n import t
+    from ductor_bot.orchestrator.flows import _finish_normal
+
+    response = AgentResponse(result="", is_error=False)
+    result = _finish_normal(response)
+    assert result.text == t("session.empty_turn")
+    assert result.text  # non-empty
+
+
+def test_finish_normal_whitespace_only_substitutes_fallback() -> None:
+    """#84 defensive: whitespace-only result is also treated as empty."""
+    from ductor_bot.i18n import t
+    from ductor_bot.orchestrator.flows import _finish_normal
+
+    response = AgentResponse(result="   \n  \t", is_error=False)
+    result = _finish_normal(response)
+    assert result.text == t("session.empty_turn")
+
+
+def test_finish_normal_non_empty_success_unchanged() -> None:
+    """#84 non-regression: non-empty successful response passes through."""
+    from ductor_bot.orchestrator.flows import _finish_normal
+
+    response = AgentResponse(result="Hello world", is_error=False)
+    result = _finish_normal(response)
+    assert result.text == "Hello world"

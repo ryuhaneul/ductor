@@ -22,6 +22,8 @@ Kirim pesan untuk melanjutkan."""
 
 age_warning = "[Sesi telah berjalan selama {age}. Gunakan /new untuk memulai ulang.]"
 
+empty_turn = "_(Agen memperbarui memori secara diam-diam — kirim pesan lain untuk melanjutkan.)_"
+
 recovered = "_Sesi sebelumnya tidak dapat dipulihkan. Sesi baru dimulai secara otomatis._"
 sigkill = "Eksekusi terganggu. Silakan kirim permintaan yang sama lagi."
 
