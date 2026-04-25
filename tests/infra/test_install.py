@@ -65,6 +65,24 @@ class TestDetectInstallMode:
             mock_sys.prefix = "C:\\Users\\me\\AppData\\Local\\pipx\\venvs\\ductor"
             assert detect_install_mode() == "pipx"
 
+    def test_uv_tool_detected_from_sys_prefix(self) -> None:
+        with patch("ductor_bot.infra.install.sys") as mock_sys:
+            mock_sys.prefix = "/home/user/.local/share/uv/tools/ductor"
+            mock_sys.executable = "/home/user/.local/share/uv/tools/ductor/bin/python"
+            assert detect_install_mode() == "uv"
+
+    def test_uv_tool_detected_from_executable(self) -> None:
+        mock_dist = MagicMock()
+        mock_dist.read_text.return_value = None
+
+        with (
+            patch("ductor_bot.infra.install.sys") as mock_sys,
+            patch("ductor_bot.infra.install.distribution", return_value=mock_dist),
+        ):
+            mock_sys.prefix = "/tmp/runtime"
+            mock_sys.executable = "/home/user/.local/share/uv/tools/ductor/bin/python"
+            assert detect_install_mode() == "uv"
+
     def test_non_editable_direct_url_is_pip(self) -> None:
         direct_url = json.dumps({"dir_info": {"editable": False}, "url": "file:///src"})
         mock_dist = MagicMock()
@@ -87,6 +105,10 @@ class TestIsUpgradeable:
 
     def test_pip_is_upgradeable(self) -> None:
         with patch("ductor_bot.infra.install.detect_install_mode", return_value="pip"):
+            assert is_upgradeable() is True
+
+    def test_uv_is_upgradeable(self) -> None:
+        with patch("ductor_bot.infra.install.detect_install_mode", return_value="uv"):
             assert is_upgradeable() is True
 
     def test_dev_is_not_upgradeable(self) -> None:

@@ -100,7 +100,9 @@ def _validate_codex_reasoning_effort(
     if not reasoning_effort or orch.models.provider_for(model_id) != "codex":
         return None
 
-    codex_cache = orch._observers.codex_cache_obs.get_cache() if orch._observers.codex_cache_obs else None
+    codex_cache = (
+        orch._observers.codex_cache_obs.get_cache() if orch._observers.codex_cache_obs else None
+    )
     if codex_cache is None:
         return None
 

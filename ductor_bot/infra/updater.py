@@ -95,6 +95,14 @@ def _build_upgrade_command(
         cmd.append(spec)
         return cmd
 
+    if mode == "uv":
+        spec = f"ductor=={target_version}" if target_version else "ductor"
+        cmd = ["uv", "tool", "upgrade"]
+        if force_reinstall:
+            cmd.append("--reinstall")
+        cmd.append(spec)
+        return cmd
+
     spec = f"ductor=={target_version}" if target_version else "ductor"
     cmd = [sys.executable, "-m", "pip", "install", "--upgrade", "--no-cache-dir"]
     if force_reinstall:

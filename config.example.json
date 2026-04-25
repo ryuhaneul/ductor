@@ -33,7 +33,7 @@
         "device_id": "",
         "allowed_rooms": ["!roomid1:matrix.org", "#your-room:matrix.org"],
         "allowed_users": ["@you:matrix.org"],
-        "store_path": "matrix_store",
+        "store_path": "matrix_store"
     },
     "streaming": {
         "enabled": true,
@@ -46,7 +46,7 @@
         "sentence_break": true,
         "show_reasoning_stream": true,
         "show_tool_progress": true,
-        "show_thinking_indicator": true,
+        "show_thinking_indicator": true
     },
     "docker": {
         "enabled": true,
@@ -55,7 +55,7 @@
         "auto_build": true,
         "mount_host_cache": false,
         "mounts": ["/home/you/projects"],
-        "extras": ["ffmpeg", "pandoc", "matplotlib", "pandas"],
+        "extras": ["ffmpeg", "pandoc", "matplotlib", "pandas"]
     },
     "heartbeat": {
         "enabled": true,
@@ -73,16 +73,16 @@
                 "prompt": "Check server status and report anomalies.",
                 "interval_minutes": 60,
                 "quiet_start": 23,
-                "quiet_end": 7,
+                "quiet_end": 7
             }
-        ],
+        ]
     },
     "cleanup": {
         "enabled": true,
         "media_files_days": 30,
         "output_to_user_days": 30,
         "api_files_days": 30,
-        "check_hour": 3,
+        "check_hour": 3
     },
     "webhooks": {
         "enabled": true,
@@ -90,7 +90,7 @@
         "port": 8742,
         "token": "YOUR_WEBHOOK_SECRET",
         "max_body_bytes": 262144,
-        "rate_limit_per_minute": 30,
+        "rate_limit_per_minute": 30
     },
     "api": {
         "enabled": false,
@@ -98,14 +98,14 @@
         "port": 8741,
         "token": "YOUR_API_TOKEN",
         "chat_id": 123456789,
-        "allow_public": false,
+        "allow_public": false
     },
     "cli_parameters": {"claude": ["--verbose", "--chrome"], "codex": [], "gemini": []},
     "image": {"max_dimension": 2000, "output_format": "webp", "quality": 85},
     "scene": {"seen_reaction": false, "status_reaction": true, "technical_footer": false},
     "notifications": {
         "startup_targets": [{"enabled": false, "chat_id": null, "topic_id": null}],
-        "upgrade_targets": [{"enabled": false, "chat_id": null, "topic_id": null}],
+        "upgrade_targets": [{"enabled": false, "chat_id": null, "topic_id": null}]
     },
     "transcription": {"audio_command": "", "video_command": ""},
     "timeouts": {
@@ -115,8 +115,8 @@
         "warning_intervals": [60.0, 10.0],
         "extend_on_activity": true,
         "activity_extension": 120.0,
-        "max_extensions": 3,
+        "max_extensions": 3
     },
     "tasks": {"enabled": true, "max_parallel": 5, "timeout_seconds": 3600.0},
-    "interagent_port": 8799,
+    "interagent_port": 8799
 }

@@ -50,16 +50,6 @@ For Matrix support: `ductor install matrix` — see [Matrix setup guide](docs/ma
 
 Detailed setup: [`docs/installation.md`](docs/installation.md)
 
-## New in v0.16.0
-
-- **Memory maintenance is now built in** — streaming compaction boundaries can trigger a silent memory flush, optional reflection hook, and LLM-driven `MAINMEMORY.md` compaction.
-- **Telegram UX is tighter** — stage-based emoji status reactions are enabled by default, while `seen_reaction` remains available as the simpler one-shot alternative.
-- **Lifecycle notifications are routable** — startup and upgrade notices can be pinned to specific chats/topics instead of always broadcasting.
-- **Media transcription is extensible** — bundled media tools now accept external audio/video transcription commands via config-driven env-var hand-off.
-- **Task and multi-agent automation got sharper** — background tasks support priorities, and `ask_agent_async.py` now supports `--reply-to` and `--silent` for cleaner pipelines.
-
-Release summary: [`docs/release_notes_v0.16.0.md`](docs/release_notes_v0.16.0.md)
-
 ## How chats work
 
 ductor gives you multiple ways to interact with your coding agents. Each level builds on the previous one.
@@ -415,7 +405,6 @@ Full config reference: [`docs/config.md`](docs/config.md) — full example with 
 | [Developer Quickstart](docs/developer_quickstart.md) | Quickest path for contributors |
 | [Architecture](docs/architecture.md) | Startup, routing, streaming, callbacks |
 | [Configuration](docs/config.md) | Config schema and merge behavior |
-| [Release Notes v0.16.0](docs/release_notes_v0.16.0.md) | Change summary since `v0.15.0` |
 | [Matrix Setup](docs/matrix-setup.md) | Adding Matrix as transport |
 | [Automation](docs/automation.md) | Cron, webhooks, heartbeat setup |
 | [Service Management](docs/modules/service_management.md) | systemd, launchd, Task Scheduler backends |

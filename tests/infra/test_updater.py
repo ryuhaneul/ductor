@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, patch
 
 from ductor_bot.infra.updater import (
     UpdateObserver,
+    _build_upgrade_command,
     consume_upgrade_sentinel,
     perform_upgrade_pipeline,
     write_upgrade_sentinel,
@@ -69,6 +70,24 @@ class TestUpgradeSentinel:
 
 class TestPerformUpgradePipeline:
     """Test upgrade pipeline behavior (verification + retry)."""
+
+    def test_build_uv_upgrade_command(self) -> None:
+        cmd = _build_upgrade_command(
+            mode="uv",
+            target_version=None,
+            force_reinstall=False,
+        )
+
+        assert cmd == ["uv", "tool", "upgrade", "ductor"]
+
+    def test_build_uv_reinstall_command_with_target(self) -> None:
+        cmd = _build_upgrade_command(
+            mode="uv",
+            target_version="2.0.0",
+            force_reinstall=True,
+        )
+
+        assert cmd == ["uv", "tool", "upgrade", "--reinstall", "ductor==2.0.0"]
 
     async def test_changes_on_first_attempt(self) -> None:
         with (

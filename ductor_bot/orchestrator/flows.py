@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import signal
 from collections.abc import Awaitable, Callable
@@ -37,6 +38,31 @@ class StreamingCallbacks:
     on_tool_activity: Callable[[str], Awaitable[None]] | None = field(default=None)
     on_system_status: Callable[[str | None], Awaitable[None]] | None = field(default=None)
     on_reasoning_delta: Callable[[str], Awaitable[None]] | None = field(default=None)
+
+
+def _consume_background_result(task: asyncio.Task[None]) -> None:
+    """Consume task cancellation so fire-and-forget tasks stay quiet."""
+    with contextlib.suppress(asyncio.CancelledError):
+        task.result()
+
+
+def _schedule_memory_flush(orch: Orchestrator, key: SessionKey, session: SessionData) -> None:
+    """Run memory maintenance after the current locked user turn can release."""
+    flusher = orch._memory_flusher
+    if flusher is None:
+        return
+
+    async def _run() -> None:
+        try:
+            await flusher.maybe_flush(key, session)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Memory flush task failed chat=%d", key.chat_id)
+
+    topic = "main" if key.topic_id is None else str(key.topic_id)
+    task = asyncio.create_task(_run(), name=f"memory-flush:{key.chat_id}:{topic}")
+    task.add_done_callback(_consume_background_result)
 
 
 def _make_timeout_controller(orch: Orchestrator, kind: str) -> TimeoutController | None:
@@ -534,8 +560,7 @@ async def normal_streaming(  # noqa: PLR0911
                 cli_detail=response.result,
             )
         await _update_session(orch, session, response)
-        if orch._memory_flusher is not None:
-            await orch._memory_flusher.maybe_flush(key, session)
+        _schedule_memory_flush(orch, key, session)
         logger.info("Streaming flow completed")
         req_model, _prov = _request_target(orch, request)
         return _finish_normal(

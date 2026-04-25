@@ -67,6 +67,7 @@ from ductor_bot.workspace.paths import DuctorPaths
 if TYPE_CHECKING:
     from ductor_bot.background import BackgroundObserver
     from ductor_bot.bus.bus import MessageBus
+    from ductor_bot.bus.lock_pool import LockPool
     from ductor_bot.config import ModelRegistry
     from ductor_bot.multiagent.bus import AsyncInterAgentResult
     from ductor_bot.multiagent.supervisor import AgentSupervisor
@@ -133,6 +134,7 @@ class Orchestrator:
         self._sessions = SessionManager(paths.sessions_path, config)
         self._named_sessions = NamedSessionRegistry(paths.named_sessions_path)
         self._process_registry = ProcessRegistry()
+        self._lock_pool: LockPool | None = None
         self._cli_service = CLIService(
             config=CLIServiceConfig(
                 working_dir=str(paths.workspace),
@@ -173,7 +175,7 @@ class Orchestrator:
             )
 
         self._observers.heartbeat.set_heartbeat_handler(_heartbeat_handler)
-        self._observers.heartbeat.set_busy_check(self._process_registry.has_active)
+        self._observers.heartbeat.set_busy_check(self.is_chat_busy)
         stale_max = config.cli_timeout * 2
         self._observers.heartbeat.set_stale_cleanup(
             lambda: self._process_registry.kill_stale(stale_max)
@@ -496,6 +498,7 @@ class Orchestrator:
         """Wire all observer result callbacks to the message bus."""
         self._observers.wire_to_bus(bus, wake_handler=wake_handler)
         bus.set_injector(self)
+        self._lock_pool = bus.lock_pool
         # Share the bus lock pool with MemoryFlusher so silent flush / compact
         # turns serialize against concurrent user turns on the same SessionKey.
         if self._memory_flusher is not None:
@@ -510,6 +513,10 @@ class Orchestrator:
     ) -> str | None:
         """Run a heartbeat turn in the main session. Returns alert text or None."""
         logger.debug("Heartbeat flow starting")
+        if self._lock_pool is not None:
+            lock = self._lock_pool.get(key.lock_key)
+            async with lock:
+                return await heartbeat_flow(self, key, prompt=prompt, ack_token=ack_token)
         return await heartbeat_flow(self, key, prompt=prompt, ack_token=ack_token)
 
     def submit_named_session(
@@ -628,7 +635,13 @@ class Orchestrator:
 
     def is_chat_busy(self, chat_id: int, topic_id: int | None = None) -> bool:
         """Check if a chat has active CLI processes."""
-        return self._process_registry.has_active(chat_id, topic_id)
+        if self._process_registry.has_active(chat_id, topic_id):
+            return True
+        if self._lock_pool is None:
+            return False
+        if topic_id is not None:
+            return self._lock_pool.is_locked((chat_id, topic_id))
+        return self._lock_pool.any_locked_for_chat(chat_id)
 
     async def _ensure_docker(self) -> None:
         """Health-check Docker before CLI calls; auto-recover or fall back."""

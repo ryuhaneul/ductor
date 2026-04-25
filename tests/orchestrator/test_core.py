@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from ductor_bot.bus.bus import MessageBus
 from ductor_bot.cli.auth import AuthResult, AuthStatus
 from ductor_bot.cli.types import AgentResponse
 from ductor_bot.config import AgentConfig
@@ -458,6 +459,39 @@ async def test_handle_heartbeat_returns_none_on_ack(orch: Orchestrator) -> None:
     assert result is None
 
 
+async def test_handle_heartbeat_waits_for_shared_session_lock(orch: Orchestrator) -> None:
+    bus = MessageBus()
+    orch.wire_observers_to_bus(bus)
+    lock = bus.lock_pool.get((42, None))
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def _heartbeat_flow(
+        _orch: Orchestrator,
+        _key: SessionKey,
+        *,
+        prompt: str | None = None,
+        ack_token: str | None = None,
+    ) -> str:
+        assert prompt is None
+        assert ack_token is None
+        entered.set()
+        await release.wait()
+        return "alert"
+
+    with patch("ductor_bot.orchestrator.core.heartbeat_flow", side_effect=_heartbeat_flow):
+        async with lock:
+            task = asyncio.create_task(orch.handle_heartbeat(SessionKey(chat_id=42)))
+            await asyncio.sleep(0.05)
+            assert not entered.is_set()
+
+        await asyncio.wait_for(entered.wait(), timeout=0.5)
+        release.set()
+        result = await asyncio.wait_for(task, timeout=0.5)
+
+    assert result == "alert"
+
+
 # ---------------------------------------------------------------------------
 # wire_observers_to_bus
 # ---------------------------------------------------------------------------
@@ -479,6 +513,15 @@ def test_wire_observers_to_bus_delegates_and_sets_injector(orch: Orchestrator) -
 
 def test_is_chat_busy_false_by_default(orch: Orchestrator) -> None:
     assert orch.is_chat_busy(1) is False
+
+
+async def test_is_chat_busy_true_when_shared_lock_held(orch: Orchestrator) -> None:
+    bus = MessageBus()
+    orch.wire_observers_to_bus(bus)
+    lock = bus.lock_pool.get((1, None))
+
+    async with lock:
+        assert orch.is_chat_busy(1) is True
 
 
 # ---------------------------------------------------------------------------

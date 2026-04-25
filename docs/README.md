@@ -58,7 +58,6 @@ Runtime behavior notes:
 - [Automation Quickstart](automation.md)
 - [Developer Quickstart](developer_quickstart.md)
 - [Configuration](config.md)
-- [Release Notes v0.16.0](release_notes_v0.16.0.md)
 - Module docs:
   - [setup_wizard](modules/setup_wizard.md)
   - [service_management](modules/service_management.md)
