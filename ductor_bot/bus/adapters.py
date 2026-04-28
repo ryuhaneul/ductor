@@ -141,7 +141,12 @@ def from_webhook_wake(chat_id: int, prompt: str) -> Envelope:
 # -- Inter-agent ---------------------------------------------------------------
 
 
-def from_interagent_result(result: AsyncInterAgentResult, chat_id: int) -> Envelope:
+def from_interagent_result(
+    result: AsyncInterAgentResult,
+    chat_id: int,
+    *,
+    injection_prompt: str = "",
+) -> Envelope:
     """Convert an async inter-agent result.
 
     Uses ``result.chat_id`` / ``result.topic_id`` when available so that
@@ -150,6 +155,10 @@ def from_interagent_result(result: AsyncInterAgentResult, chat_id: int) -> Envel
 
     Error results are delivered without lock or injection.
     Success results acquire the lock and inject into the active session.
+    ``injection_prompt`` must be supplied by the caller (e.g.
+    ``app.on_async_interagent_result``) so that ``bus._process`` can
+    actually invoke the CLI injection step.  When empty, injection is
+    skipped and only the raw ``result_text`` is delivered.
     """
     delivery_chat_id = result.chat_id or chat_id
     meta = {
@@ -181,12 +190,13 @@ def from_interagent_result(result: AsyncInterAgentResult, chat_id: int) -> Envel
         origin=Origin.INTERAGENT,
         chat_id=delivery_chat_id,
         topic_id=result.topic_id,
+        prompt=injection_prompt,
         prompt_preview=result.message_preview,
         result_text=result.result_text,
         status="success",
         delivery=DeliveryMode.UNICAST,
         lock_mode=LockMode.REQUIRED,
-        needs_injection=True,
+        needs_injection=bool(injection_prompt),
         elapsed_seconds=result.elapsed_seconds,
         session_name=result.session_name,
         metadata=meta,

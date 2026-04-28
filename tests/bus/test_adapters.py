@@ -160,15 +160,27 @@ def test_from_webhook_wake() -> None:
     assert env.lock_mode == LockMode.REQUIRED
 
 
-def test_from_interagent_success() -> None:
+def test_from_interagent_success_without_prompt_no_injection() -> None:
+    """rr#18: without injection_prompt, needs_injection must be False (raw deliver)."""
     env = from_interagent_result(_FakeInterAgentResult(), chat_id=100)
     assert env.origin == Origin.INTERAGENT
     assert env.chat_id == 100
     assert env.status == "success"
     assert env.delivery == DeliveryMode.UNICAST
     assert env.lock_mode == LockMode.REQUIRED
-    assert env.needs_injection
+    assert not env.needs_injection
+    assert env.prompt == ""
     assert env.metadata["sender"] == "agent-a"
+
+
+def test_from_interagent_success_with_prompt_enables_injection() -> None:
+    """rr#18: injection_prompt wires needs_injection=True and sets envelope.prompt."""
+    prompt = "[ASYNC INTER-AGENT RESPONSE from 'dev' (task t1)]\nresult\n[END]"
+    env = from_interagent_result(_FakeInterAgentResult(), chat_id=100, injection_prompt=prompt)
+    assert env.origin == Origin.INTERAGENT
+    assert env.needs_injection
+    assert env.prompt == prompt
+    assert env.lock_mode == LockMode.REQUIRED
 
 
 def test_from_interagent_error() -> None:

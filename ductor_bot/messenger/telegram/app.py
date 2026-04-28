@@ -1474,7 +1474,41 @@ class TelegramBot:
             logger.warning("No chat_id available for async interagent result delivery")
             return
         set_log_context(operation="ia-async", chat_id=chat_id)
-        await self._bus.submit(from_interagent_result(result, chat_id))
+
+        injection_prompt = ""
+        if result.success:
+            recipient = result.recipient or result.sender
+            session_hint = (
+                f"\nThe recipient processed this in session `{result.session_name}`. "
+                f"The user can continue this session in the recipient's Telegram chat "
+                f"via `@{result.session_name} <message>`."
+                if result.session_name
+                else ""
+            )
+            task_context = (
+                f"\n\nOriginal task you sent to '{recipient}':\n{result.original_message}"
+                if result.original_message
+                else ""
+            )
+            injection_prompt = (
+                f"[ASYNC INTER-AGENT RESPONSE from '{recipient}'"
+                f" (task {result.task_id})]\n"
+                f"{result.result_text}\n"
+                f"[END ASYNC INTER-AGENT RESPONSE]{session_hint}{task_context}\n\n"
+                f"You are agent '{self._agent_name}'. Process this response from agent "
+                f"'{recipient}' and communicate the relevant results to the user "
+                f"in your Telegram chat."
+            )
+            logger.info(
+                "ia-async inject: task=%s from=%s prompt_len=%d",
+                result.task_id,
+                recipient,
+                len(injection_prompt),
+            )
+
+        await self._bus.submit(
+            from_interagent_result(result, chat_id, injection_prompt=injection_prompt)
+        )
 
     async def on_task_result(self, result: TaskResult) -> None:
         """Handle background task result via the message bus."""

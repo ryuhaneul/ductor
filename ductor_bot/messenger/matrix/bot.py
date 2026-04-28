@@ -1206,7 +1206,33 @@ class MatrixBot:
             text = result.result_text or f"Inter-agent result from {result.recipient}"
             await self._notification_service.notify_all(text)
             return
-        await self._bus.submit(from_interagent_result(result, chat_id))
+
+        injection_prompt = ""
+        if result.success:
+            recipient = result.recipient or result.sender
+            session_hint = (
+                f"\nThe recipient processed this in session `{result.session_name}`. "
+                f"via `@{result.session_name} <message>`."
+                if result.session_name
+                else ""
+            )
+            task_context = (
+                f"\n\nOriginal task you sent to '{recipient}':\n{result.original_message}"
+                if result.original_message
+                else ""
+            )
+            injection_prompt = (
+                f"[ASYNC INTER-AGENT RESPONSE from '{recipient}'"
+                f" (task {result.task_id})]\n"
+                f"{result.result_text}\n"
+                f"[END ASYNC INTER-AGENT RESPONSE]{session_hint}{task_context}\n\n"
+                f"You are agent '{self._agent_name}'. Process this response from agent "
+                f"'{recipient}' and communicate the relevant results to the user."
+            )
+
+        await self._bus.submit(
+            from_interagent_result(result, chat_id, injection_prompt=injection_prompt)
+        )
 
     async def on_task_result(self, result: TaskResult) -> None:
         from ductor_bot.bus.adapters import from_task_result
