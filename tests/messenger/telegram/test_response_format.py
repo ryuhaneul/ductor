@@ -29,6 +29,23 @@ class TestClassifyCliError:
         assert result is not None
         assert "Rate limit" in result
 
+    def test_codex_usage_limit(self) -> None:
+        """Issue #117: Codex says 'usage limit', not 'rate limit' / '429'."""
+        result = classify_cli_error("You've hit your usage limit. Try again at 6:00 PM.")
+        assert result is not None
+        assert "Rate limit" in result
+
+    def test_codex_upgrade_to_pro(self) -> None:
+        result = classify_cli_error("Upgrade to Pro for higher limits.")
+        assert result is not None
+        assert "Rate limit" in result
+
+    def test_codex_hit_your(self) -> None:
+        """'hit your' covers 'hit your usage limit', 'hit your monthly cap', etc."""
+        result = classify_cli_error("you have hit your monthly cap")
+        assert result is not None
+        assert "Rate limit" in result
+
     def test_context_length(self) -> None:
         result = classify_cli_error("maximum context length exceeded")
         assert result is not None

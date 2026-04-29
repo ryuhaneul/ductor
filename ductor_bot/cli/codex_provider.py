@@ -42,11 +42,15 @@ logger = logging.getLogger(__name__)
 class _StreamState:
     """Mutable accumulator for streaming session data."""
 
-    __slots__ = ("accumulated_text", "thread_id")
+    __slots__ = ("accumulated_text", "last_error_message", "thread_id")
 
     def __init__(self) -> None:
         self.accumulated_text: list[str] = []
         self.thread_id: str | None = None
+        # Captures the message from any ResultEvent(is_error=True) seen in
+        # the stream (e.g. Codex `turn.failed`), so _codex_final_result can
+        # surface the real cause instead of downstream stderr artefacts.
+        self.last_error_message: str | None = None
 
     def track(self, event: StreamEvent) -> None:
         """Update state from a single stream event."""
@@ -54,6 +58,8 @@ class _StreamState:
             self.thread_id = event.session_id
         elif isinstance(event, AssistantTextDelta) and event.text:
             self.accumulated_text.append(event.text)
+        elif isinstance(event, ResultEvent) and event.is_error and event.result:
+            self.last_error_message = event.result
 
 
 class CodexCLI(BaseCLI):
@@ -205,7 +211,12 @@ class CodexCLI(BaseCLI):
                 yield event
 
         async def post_handler(result: SubprocessResult) -> AsyncGenerator[StreamEvent, None]:
-            yield _codex_final_result(result, state.accumulated_text, state.thread_id)
+            yield _codex_final_result(
+                result,
+                state.accumulated_text,
+                state.thread_id,
+                state.last_error_message,
+            )
 
         async for event in run_streaming_subprocess(
             config=self._config,
@@ -259,12 +270,26 @@ def _codex_final_result(
     result: SubprocessResult,
     accumulated_text: list[str],
     thread_id: str | None,
+    last_error_message: str | None = None,
 ) -> ResultEvent:
-    """Build the final ResultEvent after the stream loop completes."""
+    """Build the final ResultEvent after the stream loop completes.
+
+    On non-zero exit the user-facing detail is chosen in this order:
+
+    1. ``last_error_message`` — captured from in-stream ResultEvent(is_error=True),
+       e.g. Codex ``turn.failed`` (the real cause).
+    2. Joined ``accumulated_text`` — partial assistant output that arrived
+       before the failure.
+    3. ``stderr_text`` — raw stderr (often a downstream artefact such as
+       ``thread … not found`` after a failed Codex turn).
+    4. ``"(no output)"`` — fallback.
+    """
     stderr_text = result.stderr_bytes.decode(errors="replace")[:2000] if result.stderr_bytes else ""
 
     if result.process.returncode != 0:
-        error_detail = stderr_text or "\n".join(accumulated_text) or "(no output)"
+        error_detail = (
+            last_error_message or "\n".join(accumulated_text) or stderr_text or "(no output)"
+        )
         logger.error(
             "Codex stream exited with code %d: %s",
             result.process.returncode,

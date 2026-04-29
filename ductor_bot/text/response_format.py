@@ -28,7 +28,16 @@ _AUTH_PATTERNS = (
     "sign in again",
     "token has been",
 )
-_RATE_PATTERNS = ("429", "rate limit", "too many requests", "quota exceeded")
+_RATE_PATTERNS = (
+    "429",
+    "rate limit",
+    "too many requests",
+    "quota exceeded",
+    # Codex wording for usage-cap exhaustion (e.g. "You've hit your usage limit. …").
+    "usage limit",
+    "upgrade to pro",
+    "hit your",
+)
 _CONTEXT_PATTERNS = ("context length", "token limit", "maximum context", "too long")
 
 

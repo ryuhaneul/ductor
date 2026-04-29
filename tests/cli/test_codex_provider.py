@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from ductor_bot.cli.base import CLIConfig
-from ductor_bot.cli.codex_provider import CodexCLI, _codex_final_result, _log_cmd
+from ductor_bot.cli.codex_provider import CodexCLI, _codex_final_result, _log_cmd, _StreamState
 from ductor_bot.cli.executor import SubprocessResult
 from ductor_bot.cli.process_registry import ProcessRegistry
 from ductor_bot.cli.stream_events import (
@@ -815,15 +815,45 @@ class TestCodexFinalResult:
         assert result.result == ""
         assert result.session_id is None
 
-    def test_error_with_stderr(self) -> None:
+    def test_error_falls_back_to_stderr_when_no_other_source(self) -> None:
         proc = MagicMock(spec=asyncio.subprocess.Process)
         proc.returncode = 1
 
         result = _codex_final_result(
-            SubprocessResult(process=proc, stderr_bytes=b"fatal error"), ["partial"], None
+            SubprocessResult(process=proc, stderr_bytes=b"fatal error"), [], None
         )
         assert result.is_error is True
         assert "fatal error" in result.result
+
+    def test_error_accumulated_text_beats_stderr(self) -> None:
+        """Partial assistant output is more useful than raw stderr noise."""
+        proc = MagicMock(spec=asyncio.subprocess.Process)
+        proc.returncode = 1
+
+        result = _codex_final_result(
+            SubprocessResult(process=proc, stderr_bytes=b"thread not found"),
+            ["partial response"],
+            None,
+        )
+        assert result.is_error is True
+        assert "partial response" in result.result
+        assert "thread not found" not in result.result
+
+    def test_error_last_error_message_beats_everything(self) -> None:
+        """Issue #117: in-stream turn.failed message wins over stderr/accumulated."""
+        proc = MagicMock(spec=asyncio.subprocess.Process)
+        proc.returncode = 1
+
+        result = _codex_final_result(
+            SubprocessResult(process=proc, stderr_bytes=b"thread 019dc9ee not found"),
+            ["partial"],
+            None,
+            last_error_message="You've hit your usage limit. Try again at 6:00 PM.",
+        )
+        assert result.is_error is True
+        assert "usage limit" in result.result
+        assert "thread" not in result.result
+        assert "partial" not in result.result
 
     def test_error_no_stderr_uses_accumulated(self) -> None:
         proc = MagicMock(spec=asyncio.subprocess.Process)
@@ -865,6 +895,54 @@ class TestCodexFinalResult:
         # The error_detail uses stderr_text which is truncated at 2000
         # then the result is further truncated at 500
         assert result.is_error is True
+
+
+# ---------------------------------------------------------------------------
+# _StreamState (issue #117 — capture in-stream error messages)
+# ---------------------------------------------------------------------------
+
+
+class TestStreamStateLastErrorMessage:
+    def test_initial_state(self) -> None:
+        state = _StreamState()
+        assert state.last_error_message is None
+
+    def test_tracks_error_result_event(self) -> None:
+        """ResultEvent(is_error=True) — e.g. Codex turn.failed — is captured."""
+        state = _StreamState()
+        state.track(
+            ResultEvent(
+                type="result",
+                result="You've hit your usage limit. Try again at 6:00 PM.",
+                is_error=True,
+            )
+        )
+        assert state.last_error_message == "You've hit your usage limit. Try again at 6:00 PM."
+
+    def test_ignores_success_result_event(self) -> None:
+        state = _StreamState()
+        state.track(ResultEvent(type="result", result="ok", is_error=False))
+        assert state.last_error_message is None
+
+    def test_ignores_error_result_event_with_empty_text(self) -> None:
+        state = _StreamState()
+        state.track(ResultEvent(type="result", result="", is_error=True))
+        assert state.last_error_message is None
+
+    def test_last_error_wins_over_earlier(self) -> None:
+        """Later error events overwrite earlier ones (most recent cause)."""
+        state = _StreamState()
+        state.track(ResultEvent(type="result", result="first error", is_error=True))
+        state.track(ResultEvent(type="result", result="second error", is_error=True))
+        assert state.last_error_message == "second error"
+
+    def test_assistant_text_unaffected_by_error_tracking(self) -> None:
+        state = _StreamState()
+        state.track(AssistantTextDelta(type="assistant_text_delta", text="hello "))
+        state.track(ResultEvent(type="result", result="boom", is_error=True))
+        state.track(AssistantTextDelta(type="assistant_text_delta", text="world"))
+        assert state.accumulated_text == ["hello ", "world"]
+        assert state.last_error_message == "boom"
 
 
 # ---------------------------------------------------------------------------
