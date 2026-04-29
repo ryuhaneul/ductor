@@ -141,6 +141,46 @@ def from_webhook_wake(chat_id: int, prompt: str) -> Envelope:
 # -- Inter-agent ---------------------------------------------------------------
 
 
+def build_interagent_injection_prompt(
+    result: AsyncInterAgentResult,
+    *,
+    agent_name: str,
+    transport_label: str,
+) -> str:
+    """Build the prompt injected into the recipient agent's session.
+
+    Used when an async inter-agent task returns a successful result.
+    ``transport_label`` describes where the user reaches the recipient
+    (e.g. ``"Telegram chat"``, ``"Matrix room"``).  Returns ``""`` when
+    ``result.success`` is False — callers should treat an empty string as
+    "no injection, deliver raw text only".
+    """
+    if not result.success:
+        return ""
+    recipient = result.recipient or result.sender
+    session_hint = (
+        f"\nThe recipient processed this in session `{result.session_name}`. "
+        f"The user can continue this session in the recipient's {transport_label} "
+        f"via `@{result.session_name} <message>`."
+        if result.session_name
+        else ""
+    )
+    task_context = (
+        f"\n\nOriginal task you sent to '{recipient}':\n{result.original_message}"
+        if result.original_message
+        else ""
+    )
+    return (
+        f"[ASYNC INTER-AGENT RESPONSE from '{recipient}'"
+        f" (task {result.task_id})]\n"
+        f"{result.result_text}\n"
+        f"[END ASYNC INTER-AGENT RESPONSE]{session_hint}{task_context}\n\n"
+        f"You are agent '{agent_name}'. Process this response from agent "
+        f"'{recipient}' and communicate the relevant results to the user "
+        f"in your {transport_label}."
+    )
+
+
 def from_interagent_result(
     result: AsyncInterAgentResult,
     chat_id: int,

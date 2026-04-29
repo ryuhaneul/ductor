@@ -1463,7 +1463,10 @@ class TelegramBot:
 
     async def on_async_interagent_result(self, result: AsyncInterAgentResult) -> None:
         """Handle async inter-agent result via the message bus."""
-        from ductor_bot.bus.adapters import from_interagent_result
+        from ductor_bot.bus.adapters import (
+            build_interagent_injection_prompt,
+            from_interagent_result,
+        )
 
         # Prefer the originating chat context carried by the result;
         # fall back to the sender agent's default DM.
@@ -1475,34 +1478,16 @@ class TelegramBot:
             return
         set_log_context(operation="ia-async", chat_id=chat_id)
 
-        injection_prompt = ""
-        if result.success:
-            recipient = result.recipient or result.sender
-            session_hint = (
-                f"\nThe recipient processed this in session `{result.session_name}`. "
-                f"The user can continue this session in the recipient's Telegram chat "
-                f"via `@{result.session_name} <message>`."
-                if result.session_name
-                else ""
-            )
-            task_context = (
-                f"\n\nOriginal task you sent to '{recipient}':\n{result.original_message}"
-                if result.original_message
-                else ""
-            )
-            injection_prompt = (
-                f"[ASYNC INTER-AGENT RESPONSE from '{recipient}'"
-                f" (task {result.task_id})]\n"
-                f"{result.result_text}\n"
-                f"[END ASYNC INTER-AGENT RESPONSE]{session_hint}{task_context}\n\n"
-                f"You are agent '{self._agent_name}'. Process this response from agent "
-                f"'{recipient}' and communicate the relevant results to the user "
-                f"in your Telegram chat."
-            )
+        injection_prompt = build_interagent_injection_prompt(
+            result,
+            agent_name=self._agent_name,
+            transport_label="Telegram chat",
+        )
+        if injection_prompt:
             logger.info(
                 "ia-async inject: task=%s from=%s prompt_len=%d",
                 result.task_id,
-                recipient,
+                result.recipient or result.sender,
                 len(injection_prompt),
             )
 
