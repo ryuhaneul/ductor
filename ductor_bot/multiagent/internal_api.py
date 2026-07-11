@@ -18,6 +18,8 @@ from typing import TYPE_CHECKING
 
 from aiohttp import web
 
+from ductor_bot.interagent_types import InterAgentOrigin
+
 if TYPE_CHECKING:
     from ductor_bot.multiagent.bus import InterAgentBus
     from ductor_bot.multiagent.health import AgentHealth
@@ -141,6 +143,9 @@ class InternalAgentAPI:
         recipient = data.get("to", "")
         message = data.get("message", "")
         new_session = bool(data.get("new_session", False))
+        chat_id = int(data["chat_id"]) if data.get("chat_id") else 0
+        topic_id = int(data["topic_id"]) if data.get("topic_id") else None
+        transport = _normalise_transport(str(data.get("transport", "")))
 
         if not recipient or not message:
             return web.json_response(
@@ -149,11 +154,17 @@ class InternalAgentAPI:
             )
 
         assert self._bus is not None  # Routes only registered when bus is set
+        origin = (
+            InterAgentOrigin(transport=transport, chat_id=chat_id, topic_id=topic_id)
+            if transport or chat_id or topic_id is not None
+            else None
+        )
         result = await self._bus.send(
             sender=sender,
             recipient=recipient,
             message=message,
             new_session=new_session,
+            origin=origin,
         )
         return web.json_response(asdict(result))
 

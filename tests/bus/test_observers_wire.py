@@ -225,6 +225,7 @@ class TestWireIntegration:
         bg_result.session_name = ""
         bg_result.session_id = ""
         bg_result.task_id = "t1"
+        bg_result.transport = "tg"
         await handler(bg_result)
 
         transport.deliver.assert_awaited_once()

@@ -448,4 +448,4 @@ changelog_header = "**Catatan Rilis v{version}**"
 # -- Multi-agent notifications -------------------------------------------------
 
 [multiagent]
-async_task_received = "📥 **Tugas async diterima** dari `{sender}`\nSesi: `{session}` · ID Tugas: `{task_id}`\n\n_{preview}_"
+async_task_received = "📥 **Tugas async diterima** dari `{sender}`\nID Tugas: `{task_id}`\n\n_{preview}_"

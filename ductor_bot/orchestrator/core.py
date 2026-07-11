@@ -26,6 +26,7 @@ from ductor_bot.errors import (
 )
 from ductor_bot.infra.docker import DockerManager
 from ductor_bot.infra.inflight import InflightTracker
+from ductor_bot.interagent_types import IARunningLimiter, InterAgentOrigin, InterAgentOutcome
 from ductor_bot.orchestrator.commands import (
     cmd_cron,
     cmd_diagnose,
@@ -60,8 +61,9 @@ from ductor_bot.orchestrator.providers import ProviderManager
 from ductor_bot.orchestrator.registry import CommandRegistry, OrchestratorResult
 from ductor_bot.security import detect_suspicious_patterns
 from ductor_bot.session import SessionKey, SessionManager
+from ductor_bot.session.lock_pool import NamedSessionLockPool
 from ductor_bot.session.manager import SessionData
-from ductor_bot.session.named import NamedSessionRegistry
+from ductor_bot.session.named import IA_RUNNING_CEILING, NamedSessionRegistry, named_process_label
 from ductor_bot.webhook.manager import WebhookManager
 from ductor_bot.workspace.paths import DuctorPaths
 
@@ -91,6 +93,7 @@ class NamedSessionRequest:
     thread_id: int | None
     provider_override: str | None = None
     model_override: str | None = None
+    transport: str = "tg"
 
 
 @dataclass(slots=True)
@@ -134,6 +137,8 @@ class Orchestrator:
         self._providers = ProviderManager(config)
         self._sessions = SessionManager(paths.sessions_path, config)
         self._named_sessions = NamedSessionRegistry(paths.named_sessions_path)
+        self._ns_locks = NamedSessionLockPool(self._named_sessions)
+        self._ia_limiter = IARunningLimiter(IA_RUNNING_CEILING)
         self._process_registry = ProcessRegistry()
         self._lock_pool: LockPool | None = None
         self._cli_service = CLIService(
@@ -162,7 +167,13 @@ class Orchestrator:
         )
         self._cron_manager = CronManager(jobs_path=paths.cron_jobs_path)
         self._webhook_manager = WebhookManager(hooks_path=paths.webhooks_path)
-        self._observers = ObserverManager(config, paths)
+        self._observers = ObserverManager(
+            config,
+            paths,
+            named_sessions=self._named_sessions,
+            named_locks=self._ns_locks,
+            ia_limiter=self._ia_limiter,
+        )
 
         async def _heartbeat_handler(
             chat_id: int,
@@ -500,10 +511,32 @@ class Orchestrator:
         """
         if topic_id is not None:
             return await self._process_registry.kill_by_chat_topic(chat_id, topic_id)
+        executions = [
+            (ns.name, token)
+            for ns in self._named_sessions.list_active(chat_id)
+            if (token := self._named_sessions.active_execution_token(chat_id, ns.name))
+            is not None
+        ]
         killed = await self._process_registry.kill_all(chat_id)
+        barriers = [
+            (name, token, named_process_label(name, token))
+            for name, token in executions
+            if self._named_sessions.active_execution_token(chat_id, name) == token
+        ]
+        killed += sum(
+            await asyncio.gather(
+                *(
+                    self._process_registry.kill_by_label(chat_id, label)
+                    for _name, _token, label in barriers
+                )
+            )
+        )
+        for name, token, label in barriers:
+            if self._named_sessions.active_execution_token(chat_id, name) != token:
+                self._process_registry.clear_label_abort(chat_id, label)
+        self._end_all_named_session_state(chat_id)
         if self._observers.background:
             killed += await self._observers.background.cancel_all(chat_id)
-        self._named_sessions.end_all(chat_id)
         return killed
 
     def interrupt(self, chat_id: int) -> int:
@@ -573,27 +606,82 @@ class Orchestrator:
                 request.provider_override
             )
 
-        ns = self._named_sessions.create(chat_id, provider_name, model_name, prompt)
-        exec_config = resolve_cli_config(self._config, self._observers.codex_cache)
-        sub = BackgroundSubmit(
-            chat_id=chat_id,
-            prompt=prompt,
-            message_id=request.message_id,
-            thread_id=request.thread_id,
-            session_name=ns.name,
-            provider_override=provider_name,
-            model_override=model_name,
+        ns = self._named_sessions.create(
+            chat_id,
+            provider_name,
+            model_name,
+            prompt,
+            transport=request.transport,
+            topic_id=request.thread_id,
         )
-        task_id = self._observers.background.submit(sub, exec_config)
+        reservation_gen = ns.reservation_gen
+        try:
+            exec_config = resolve_cli_config(self._config, self._observers.codex_cache)
+            sub = BackgroundSubmit(
+                chat_id=chat_id,
+                prompt=prompt,
+                message_id=request.message_id,
+                thread_id=request.thread_id,
+                session_name=ns.name,
+                provider_override=provider_name,
+                model_override=model_name,
+                reservation_gen=reservation_gen,
+                transport=ns.transport,
+            )
+            task_id = self._observers.background.submit(sub, exec_config)
+        except Exception:
+            current = self._named_sessions.get(chat_id, ns.name)
+            if (
+                current is ns
+                and current.status == "running"
+                and current.reservation_gen == reservation_gen
+            ):
+                self._named_sessions.end_session(chat_id, ns.name)
+                self._ns_locks.evict_if_unused((chat_id, ns.name))
+            raise
         return task_id, ns.name
 
-    def submit_named_followup_bg(
+    async def reserve_named_followup(
+        self,
+        chat_id: int,
+        session_name: str,
+        prompt: str,
+        *,
+        topic_id: int | None = None,
+        transport: str | None = None,
+    ) -> int:
+        """Reserve a named session for a background follow-up under its named lock."""
+        async with self._ns_locks.acquire((chat_id, session_name)):
+            ns = self._named_sessions.get(chat_id, session_name)
+            if ns is None:
+                msg = f"Session '{session_name}' not found"
+                raise ValueError(msg)
+            if ns.status == "ended":
+                msg = f"Session '{session_name}' has ended"
+                raise ValueError(msg)
+            if ns.status == "running":
+                msg = f"Session '{session_name}' is still processing"
+                raise ValueError(msg)
+            gen = self._named_sessions.reserve_followup(
+                chat_id,
+                session_name,
+                prompt,
+                topic_id=topic_id,
+                transport=transport,
+            )
+            if gen is None:
+                msg = f"Session '{session_name}' is still processing"
+                raise ValueError(msg)
+            return gen
+
+    async def submit_named_followup_bg(  # noqa: PLR0913
         self,
         chat_id: int,
         session_name: str,
         prompt: str,
         message_id: int,
         thread_id: int | None,
+        transport: str | None = None,
     ) -> str:
         """Submit a background follow-up to an existing named session. Returns task_id."""
         from ductor_bot.cli.param_resolver import resolve_cli_config
@@ -602,39 +690,79 @@ class Orchestrator:
             msg = "Background observer not initialized"
             raise RuntimeError(msg)
 
+        reservation_gen = await self.reserve_named_followup(
+            chat_id,
+            session_name,
+            prompt,
+            topic_id=thread_id,
+            transport=transport,
+        )
         ns = self._named_sessions.get(chat_id, session_name)
         if ns is None:
+            async with self._ns_locks.acquire((chat_id, session_name)):
+                self._named_sessions.rollback_reservation(
+                    chat_id, session_name, reservation_gen
+                )
             msg = f"Session '{session_name}' not found"
             raise ValueError(msg)
-        if ns.status == "ended":
-            msg = f"Session '{session_name}' has ended"
-            raise ValueError(msg)
-        if ns.status == "running":
-            msg = f"Session '{session_name}' is still processing"
-            raise ValueError(msg)
+        try:
+            exec_config = resolve_cli_config(self._config, self._observers.codex_cache)
+            sub = BackgroundSubmit(
+                chat_id=chat_id,
+                prompt=prompt,
+                message_id=message_id,
+                thread_id=thread_id,
+                session_name=session_name,
+                resume_session_id=ns.session_id,
+                provider_override=ns.provider,
+                model_override=ns.model,
+                reservation_gen=reservation_gen,
+                transport=ns.transport,
+            )
+            return self._observers.background.submit(sub, exec_config)
+        except Exception:
+            async with self._ns_locks.acquire((chat_id, session_name)):
+                self._named_sessions.rollback_reservation(chat_id, session_name, reservation_gen)
+            raise
 
-        self._named_sessions.mark_running(chat_id, session_name, prompt)
-        exec_config = resolve_cli_config(self._config, self._observers.codex_cache)
-        sub = BackgroundSubmit(
-            chat_id=chat_id,
-            prompt=prompt,
-            message_id=message_id,
-            thread_id=thread_id,
-            session_name=session_name,
-            resume_session_id=ns.session_id,
-            provider_override=ns.provider,
-            model_override=ns.model,
+    def _end_all_named_session_state(self, chat_id: int) -> int:
+        """End all named sessions without issuing process kills."""
+        active = self._named_sessions.list_active(chat_id)
+        count = self._named_sessions.end_all(chat_id)
+        for ns in active:
+            self._ns_locks.evict_if_unused((chat_id, ns.name))
+        return count
+
+    async def end_all_named_sessions(self, chat_id: int) -> int:
+        """End all named sessions and kill their active executions."""
+        active = self._named_sessions.list_active(chat_id)
+        labels = [
+            named_process_label(ns.name, token)
+            for ns in active
+            if (token := self._named_sessions.active_execution_token(chat_id, ns.name))
+            is not None
+        ]
+        count = self._end_all_named_session_state(chat_id)
+        await asyncio.gather(
+            *(self._process_registry.kill_by_label(chat_id, label) for label in labels)
         )
-        return self._observers.background.submit(sub, exec_config)
+        return count
 
     async def end_named_session(self, chat_id: int, name: str) -> bool:
         """Kill process and end a named session."""
         ns = self._named_sessions.get(chat_id, name)
         if ns is None:
             return False
-        await self._process_registry.kill_by_label(chat_id, f"ns:{name}")
-        self._process_registry.clear_label_abort(chat_id, f"ns:{name}")
-        return self._named_sessions.end_session(chat_id, name)
+        token = self._named_sessions.active_execution_token(chat_id, name)
+        ended = self._named_sessions.end_session(chat_id, name)
+        if not ended:
+            return False
+        if token is not None:
+            await self._process_registry.kill_by_label(
+                chat_id, named_process_label(name, token)
+            )
+        self._ns_locks.evict_if_unused((chat_id, name))
+        return True
 
     def is_known_model(self, candidate: str) -> bool:
         """Return True if *candidate* is a recognized model ID for any provider."""
@@ -757,13 +885,14 @@ class Orchestrator:
         message: str,
         *,
         new_session: bool = False,
-    ) -> tuple[str, str, str]:
+        origin: InterAgentOrigin | None = None,
+    ) -> InterAgentOutcome:
         """Process a message from another agent via the InterAgentBus."""
         from ductor_bot.orchestrator.injection import (
             handle_interagent_message as _handle_ia,
         )
 
-        return await _handle_ia(self, sender, message, new_session=new_session)
+        return await _handle_ia(self, sender, message, new_session=new_session, origin=origin)
 
     async def handle_async_interagent_result(
         self,

@@ -1061,8 +1061,13 @@ class TelegramBot:
 
         try:
             if session_followup:
-                task_id = self._orch.submit_named_followup_bg(
-                    chat_id, session_followup, prompt, message.message_id, thread_id
+                task_id = await self._orch.submit_named_followup_bg(
+                    chat_id,
+                    session_followup,
+                    prompt,
+                    message.message_id,
+                    thread_id,
+                    transport="tg",
                 )
                 await send_rich(
                     self._bot,

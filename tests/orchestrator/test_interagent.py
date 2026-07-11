@@ -119,12 +119,10 @@ class TestHandleInteragentMessage:
     """Test handle_interagent_message."""
 
     async def test_returns_result_and_session_name(self, orch_ia: Orchestrator) -> None:
-        result_text, session_name, notice = await orch_ia.handle_interagent_message(
-            "main", "Do something"
-        )
-        assert result_text == "done"
-        assert session_name == "ia-main"
-        assert notice == ""
+        outcome = await orch_ia.handle_interagent_message("main", "Do something")
+        assert outcome.text == "done"
+        assert outcome.session_name == "ia-main"
+        assert outcome.notice == ""
 
     async def test_creates_named_session(self, orch_ia: Orchestrator) -> None:
         await orch_ia.handle_interagent_message("main", "Task 1")
@@ -140,8 +138,8 @@ class TestHandleInteragentMessage:
         orch_ia._cli_service.execute = AsyncMock(
             return_value=CLIResponse(session_id="sess-002", result="continued")
         )
-        result_text, _, _ = await orch_ia.handle_interagent_message("main", "Task 2")
-        assert result_text == "continued"
+        outcome = await orch_ia.handle_interagent_message("main", "Task 2")
+        assert outcome.text == "continued"
 
         # Verify resume_session was passed
         call_args = orch_ia._cli_service.execute.call_args
@@ -154,10 +152,8 @@ class TestHandleInteragentMessage:
         orch_ia._cli_service.execute = AsyncMock(
             return_value=CLIResponse(session_id="sess-new", result="fresh start")
         )
-        result_text, _, _ = await orch_ia.handle_interagent_message(
-            "main", "New task", new_session=True
-        )
-        assert result_text == "fresh start"
+        outcome = await orch_ia.handle_interagent_message("main", "New task", new_session=True)
+        assert outcome.text == "fresh start"
 
         # Verify resume_session is None (fresh session)
         call_args = orch_ia._cli_service.execute.call_args
@@ -176,13 +172,14 @@ class TestHandleInteragentMessage:
         await orch_ia.handle_interagent_message("main", "Test")
         call_args = orch_ia._cli_service.execute.call_args
         request = call_args[0][0]
-        assert request.process_label == "interagent:main"
+        assert request.process_label.startswith("ns:ia-main:")
+        assert len(request.process_label.rsplit(":", 1)[1]) == 16
 
     async def test_error_returns_error_text(self, orch_ia: Orchestrator) -> None:
         orch_ia._cli_service.execute = AsyncMock(side_effect=RuntimeError("crash"))
-        result_text, session_name, _ = await orch_ia.handle_interagent_message("main", "Crash")
-        assert "Error" in result_text
-        assert session_name == "ia-main"
+        outcome = await orch_ia.handle_interagent_message("main", "Crash")
+        assert "Error" in outcome.text
+        assert outcome.session_name == "ia-main"
 
     async def test_provider_switch_returns_notice(self, orch_ia: Orchestrator) -> None:
         # Start with codex provider
@@ -194,9 +191,9 @@ class TestHandleInteragentMessage:
         orch_ia._cli_service.execute = AsyncMock(
             return_value=CLIResponse(session_id="claude-sess", result="switched")
         )
-        result_text, _, notice = await orch_ia.handle_interagent_message("main", "Task 2")
-        assert result_text == "switched"
-        assert "provider" in notice.lower()
+        outcome = await orch_ia.handle_interagent_message("main", "Task 2")
+        assert outcome.text == "switched"
+        assert "provider" in outcome.notice.lower()
         # Fresh session → no resume
         call_args = orch_ia._cli_service.execute.call_args
         assert call_args[0][0].resume_session is None
@@ -229,13 +226,11 @@ class TestHandleInteragentMessage:
         fresh_response = CLIResponse(session_id="fresh-sess", result="fresh response")
         orch_ia._cli_service.execute = AsyncMock(side_effect=[stale_response, fresh_response])
 
-        result_text, session_name, notice = await orch_ia.handle_interagent_message(
-            "main", "Task 2"
-        )
+        outcome = await orch_ia.handle_interagent_message("main", "Task 2")
 
-        assert result_text == "fresh response"
-        assert session_name == "ia-main"
-        assert "stale" in notice.lower()
+        assert outcome.text == "fresh response"
+        assert outcome.session_name == "ia-main"
+        assert "stale" in outcome.notice.lower()
         assert orch_ia._cli_service.execute.call_count == 2
         first_call_req = orch_ia._cli_service.execute.call_args_list[0][0][0]
         second_call_req = orch_ia._cli_service.execute.call_args_list[1][0][0]

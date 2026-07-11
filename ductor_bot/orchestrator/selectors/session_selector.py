@@ -46,7 +46,7 @@ async def handle_session_callback(
         return await _build_page(orch, chat_id)
 
     if action == "endall":
-        count = orch._named_sessions.end_all(chat_id)
+        count = await orch.end_all_named_sessions(chat_id)
         note = t("sessions.ended_all_one", count=count) if count else t("sessions.ended_all_none")
         return await _build_page(orch, chat_id, note=note)
 

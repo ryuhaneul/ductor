@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from aiohttp.test_utils import TestClient
 
+from ductor_bot.interagent_types import InterAgentOutcome
 from ductor_bot.multiagent.bus import InterAgentBus
 from ductor_bot.multiagent.health import AgentHealth
 from ductor_bot.multiagent.internal_api import InternalAgentAPI, _normalise_transport
@@ -41,7 +42,7 @@ class TestHandleSend:
         stack = MagicMock()
         stack.bot.orchestrator = MagicMock()
         stack.bot.orchestrator.handle_interagent_message = AsyncMock(
-            return_value=("OK", "ia-sender", "")
+            return_value=InterAgentOutcome("OK", "ia-sender", "", ok=True)
         )
         bus.register("target", stack)
 
@@ -89,7 +90,7 @@ class TestHandleSendAsync:
         stack = MagicMock()
         stack.bot.orchestrator = MagicMock()
         stack.bot.orchestrator.handle_interagent_message = AsyncMock(
-            return_value=("OK", "ia-sender", "")
+            return_value=InterAgentOutcome("OK", "ia-sender", "", ok=True)
         )
         bus.register("target", stack)
 
@@ -133,7 +134,7 @@ class TestNewSessionFlag:
         stack = MagicMock()
         stack.bot.orchestrator = MagicMock()
         stack.bot.orchestrator.handle_interagent_message = AsyncMock(
-            return_value=("OK", "ia-sender", "")
+            return_value=InterAgentOutcome("OK", "ia-sender", "", ok=True)
         )
         bus.register("target", stack)
 
@@ -151,6 +152,7 @@ class TestNewSessionFlag:
             "sender",
             "Hello",
             new_session=True,
+            origin=None,
         )
 
     async def test_send_defaults_new_session_false(
@@ -159,7 +161,7 @@ class TestNewSessionFlag:
         stack = MagicMock()
         stack.bot.orchestrator = MagicMock()
         stack.bot.orchestrator.handle_interagent_message = AsyncMock(
-            return_value=("OK", "ia-sender", "")
+            return_value=InterAgentOutcome("OK", "ia-sender", "", ok=True)
         )
         bus.register("target", stack)
 
@@ -172,6 +174,7 @@ class TestNewSessionFlag:
             "sender",
             "Hello",
             new_session=False,
+            origin=None,
         )
 
     async def test_send_async_passes_new_session(
@@ -180,7 +183,7 @@ class TestNewSessionFlag:
         stack = MagicMock()
         stack.bot.orchestrator = MagicMock()
         stack.bot.orchestrator.handle_interagent_message = AsyncMock(
-            return_value=("OK", "ia-sender", "")
+            return_value=InterAgentOutcome("OK", "ia-sender", "", ok=True)
         )
         bus.register("target", stack)
 

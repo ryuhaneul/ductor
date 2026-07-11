@@ -10,7 +10,7 @@ import logging
 from dataclasses import dataclass
 
 from ductor_bot.infra.inflight import InflightTracker
-from ductor_bot.session.named import NamedSession
+from ductor_bot.session.named import NamedSession, is_interagent_session
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,8 @@ class RecoveryAction:
     session_id: str
     prompt_preview: str
     session_name: str
+    transport: str = "tg"
+    topic_id: int | None = None
 
 
 class RecoveryPlanner:
@@ -84,7 +86,7 @@ class RecoveryPlanner:
         """Plan named session recovery from session registry."""
         actions: list[RecoveryAction] = []
         for ns in self._named_sessions:
-            if ns.name.startswith("ia-"):
+            if is_interagent_session(ns):
                 continue
             if ns.status != "idle":
                 continue
@@ -99,6 +101,8 @@ class RecoveryPlanner:
                     session_id=ns.session_id,
                     prompt_preview=ns.last_prompt or ns.prompt_preview,
                     session_name=ns.name,
+                    transport=ns.transport,
+                    topic_id=ns.last_topic_id,
                 )
             )
         return actions

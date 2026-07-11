@@ -21,6 +21,7 @@ from ductor_bot.log_context import set_log_context
 from ductor_bot.orchestrator.hooks import HookContext
 from ductor_bot.orchestrator.registry import OrchestratorResult
 from ductor_bot.session import SessionData, SessionKey
+from ductor_bot.session.named import is_interagent_session, named_process_label
 from ductor_bot.text.response_format import session_error_text, timeout_error_text
 from ductor_bot.workspace.loader import read_mainmemory
 
@@ -712,55 +713,108 @@ def _strip_ack_token(text: str, token: str) -> str:
     return stripped
 
 
-async def named_session_flow(
+async def named_session_flow(  # noqa: C901, PLR0911
     orch: Orchestrator,
     key: SessionKey,
     session_name: str,
     text: str,
 ) -> OrchestratorResult:
     """Handle a foreground follow-up to a named session (non-streaming)."""
-    ns = orch._named_sessions.get(key.chat_id, session_name)
-    if ns is None:
-        return OrchestratorResult(text=t("session.not_found", name=session_name))
-    if ns.status == "ended":
-        return OrchestratorResult(text=t("session.ended", name=session_name))
-    if ns.status == "running":
-        return OrchestratorResult(text=t("session.still_running", name=session_name))
+    async with orch._ns_locks.acquire((key.chat_id, session_name)):
+        ns = orch._named_sessions.get(key.chat_id, session_name)
+        if ns is None:
+            return OrchestratorResult(text=t("session.not_found", name=session_name))
+        if ns.status == "ended":
+            return OrchestratorResult(text=t("session.ended", name=session_name))
+        if ns.status == "running":
+            return OrchestratorResult(text=t("session.still_running", name=session_name))
+        permit = False
+        if is_interagent_session(ns):
+            if not orch._ia_limiter.try_acquire():
+                return OrchestratorResult(text="Inter-agent running ceiling reached; retry later.")
+            permit = True
+        tag = f"**[{session_name} | {ns.provider}]**\n"
+        execution_token: str | None = None
+        try:
+            generation = orch._named_sessions.reserve_followup(
+                key.chat_id,
+                session_name,
+                text,
+                topic_id=key.topic_id,
+                transport=key.transport,
+            )
+            assert generation is not None
+            execution_token = orch._named_sessions.begin_execution(key.chat_id, session_name)
+            request = AgentRequest(
+                prompt=text,
+                model_override=ns.model,
+                provider_override=ns.provider,
+                chat_id=key.chat_id,
+                topic_id=key.topic_id,
+                transport=key.transport,
+                process_label=named_process_label(session_name, execution_token),
+                resume_session=ns.session_id or None,
+                timeout_seconds=resolve_timeout(orch._config, "normal"),
+                timeout_controller=_make_timeout_controller(orch, "normal"),
+            )
+            response = await orch._cli_service.execute(request)
 
-    tag = f"**[{session_name} | {ns.provider}]**\n"
-    orch._named_sessions.mark_running(key.chat_id, session_name, text)
-    request = AgentRequest(
-        prompt=text,
-        model_override=ns.model,
-        provider_override=ns.provider,
-        chat_id=key.chat_id,
-        topic_id=key.topic_id,
-        transport=key.transport,
-        process_label=f"ns:{session_name}",
-        resume_session=ns.session_id or None,
-        timeout_seconds=resolve_timeout(orch._config, "normal"),
-        timeout_controller=_make_timeout_controller(orch, "normal"),
-    )
-    response = await orch._cli_service.execute(request)
+            if ns.status == "ended":
+                return OrchestratorResult(text="")
 
-    _reg = orch._process_registry
-    if (
-        _reg.was_aborted(key.chat_id)
-        or _reg.was_aborted_topic(key.chat_id, key.topic_id)
-        or _reg.was_interrupted(key.chat_id)
-    ):
-        _reg.clear_interrupt(key.chat_id)
-        ns.status = "idle"
-        return OrchestratorResult(text="")
-    if response.is_error:
-        ns.status = "idle"
-        return OrchestratorResult(text=f"{tag}{t('error.generic', detail=response.result[:500])}")
+            _reg = orch._process_registry
+            if (
+                _reg.was_aborted(key.chat_id)
+                or _reg.was_aborted_topic(key.chat_id, key.topic_id)
+                or _reg.was_interrupted(key.chat_id)
+            ):
+                _reg.clear_interrupt(key.chat_id)
+                orch._named_sessions.update_after_response(
+                    key.chat_id,
+                    session_name,
+                    "",
+                    expected_session=ns,
+                    reservation_gen=generation,
+                )
+                return OrchestratorResult(text="")
+            if response.is_error:
+                orch._named_sessions.update_after_response(
+                    key.chat_id,
+                    session_name,
+                    response.session_id or "",
+                    expected_session=ns,
+                    reservation_gen=generation,
+                )
+                return OrchestratorResult(
+                    text=f"{tag}{t('error.generic', detail=response.result[:500])}"
+                )
 
-    orch._named_sessions.update_after_response(key.chat_id, session_name, response.session_id or "")
-    return OrchestratorResult(text=f"{tag}{response.result}")
+            orch._named_sessions.update_after_response(
+                key.chat_id,
+                session_name,
+                response.session_id or "",
+                expected_session=ns,
+                reservation_gen=generation,
+            )
+            return OrchestratorResult(text=f"{tag}{response.result}")
+        finally:
+            if execution_token is not None:
+                orch._process_registry.clear_label_abort(
+                    key.chat_id, named_process_label(session_name, execution_token)
+                )
+                orch._named_sessions.finish_execution(
+                    key.chat_id, session_name, execution_token
+                )
+            if ns.status == "running":
+                orch._named_sessions.update_after_response(
+                    key.chat_id, session_name, "", expected_session=ns
+                )
+            if permit:
+                orch._ia_limiter.release()
+            orch._named_sessions.prune_interagent(key.chat_id, orch._ns_locks)
 
 
-async def named_session_streaming(
+async def named_session_streaming(  # noqa: C901, PLR0911
     orch: Orchestrator,
     key: SessionKey,
     session_name: str,
@@ -769,63 +823,116 @@ async def named_session_streaming(
     cbs: StreamingCallbacks | None = None,
 ) -> OrchestratorResult:
     """Handle a foreground streaming follow-up to a named session."""
-    ns = orch._named_sessions.get(key.chat_id, session_name)
-    if ns is None:
-        return OrchestratorResult(text=t("session.not_found", name=session_name))
-    if ns.status == "ended":
-        return OrchestratorResult(text=t("session.ended", name=session_name))
-    if ns.status == "running":
-        return OrchestratorResult(text=t("session.still_running", name=session_name))
+    async with orch._ns_locks.acquire((key.chat_id, session_name)):
+        ns = orch._named_sessions.get(key.chat_id, session_name)
+        if ns is None:
+            return OrchestratorResult(text=t("session.not_found", name=session_name))
+        if ns.status == "ended":
+            return OrchestratorResult(text=t("session.ended", name=session_name))
+        if ns.status == "running":
+            return OrchestratorResult(text=t("session.still_running", name=session_name))
+        permit = False
+        if is_interagent_session(ns):
+            if not orch._ia_limiter.try_acquire():
+                return OrchestratorResult(text="Inter-agent running ceiling reached; retry later.")
+            permit = True
+        cb = cbs or StreamingCallbacks()
+        tag = f"**[{session_name} | {ns.provider}]**\n"
+        execution_token: str | None = None
+        try:
+            generation = orch._named_sessions.reserve_followup(
+                key.chat_id,
+                session_name,
+                text,
+                topic_id=key.topic_id,
+                transport=key.transport,
+            )
+            assert generation is not None
+            execution_token = orch._named_sessions.begin_execution(key.chat_id, session_name)
+            request = AgentRequest(
+                prompt=text,
+                model_override=ns.model,
+                provider_override=ns.provider,
+                chat_id=key.chat_id,
+                topic_id=key.topic_id,
+                transport=key.transport,
+                process_label=named_process_label(session_name, execution_token),
+                resume_session=ns.session_id or None,
+                timeout_seconds=resolve_timeout(orch._config, "normal"),
+                timeout_controller=_make_timeout_controller(orch, "normal"),
+            )
 
-    cb = cbs or StreamingCallbacks()
-    tag = f"**[{session_name} | {ns.provider}]**\n"
-    orch._named_sessions.mark_running(key.chat_id, session_name, text)
-    request = AgentRequest(
-        prompt=text,
-        model_override=ns.model,
-        provider_override=ns.provider,
-        chat_id=key.chat_id,
-        topic_id=key.topic_id,
-        transport=key.transport,
-        process_label=f"ns:{session_name}",
-        resume_session=ns.session_id or None,
-        timeout_seconds=resolve_timeout(orch._config, "normal"),
-        timeout_controller=_make_timeout_controller(orch, "normal"),
-    )
+            tag_sent = False
 
-    tag_sent = False
+            async def _tagged_text_delta(chunk: str) -> None:
+                nonlocal tag_sent
+                if cb.on_text_delta is not None:
+                    if not tag_sent:
+                        await cb.on_text_delta(tag)
+                        tag_sent = True
+                    await cb.on_text_delta(chunk)
 
-    async def _tagged_text_delta(chunk: str) -> None:
-        nonlocal tag_sent
-        if cb.on_text_delta is not None:
-            if not tag_sent:
-                await cb.on_text_delta(tag)
-                tag_sent = True
-            await cb.on_text_delta(chunk)
+            response = await orch._cli_service.execute_streaming(
+                request,
+                on_text_delta=_tagged_text_delta,
+                on_tool_activity=cb.on_tool_activity,
+                on_system_status=cb.on_system_status,
+                on_reasoning_delta=cb.on_reasoning_delta,
+            )
 
-    response = await orch._cli_service.execute_streaming(
-        request,
-        on_text_delta=_tagged_text_delta,
-        on_tool_activity=cb.on_tool_activity,
-        on_system_status=cb.on_system_status,
-        on_reasoning_delta=cb.on_reasoning_delta,
-    )
+            if ns.status == "ended":
+                return OrchestratorResult(text="")
 
-    _reg2 = orch._process_registry
-    if (
-        _reg2.was_aborted(key.chat_id)
-        or _reg2.was_aborted_topic(key.chat_id, key.topic_id)
-        or _reg2.was_interrupted(key.chat_id)
-    ):
-        _reg2.clear_interrupt(key.chat_id)
-        ns.status = "idle"
-        return OrchestratorResult(text="")
-    if response.is_error:
-        ns.status = "idle"
-        return OrchestratorResult(text=f"{tag}{t('error.generic', detail=response.result[:500])}")
+            _reg2 = orch._process_registry
+            if (
+                _reg2.was_aborted(key.chat_id)
+                or _reg2.was_aborted_topic(key.chat_id, key.topic_id)
+                or _reg2.was_interrupted(key.chat_id)
+            ):
+                _reg2.clear_interrupt(key.chat_id)
+                orch._named_sessions.update_after_response(
+                    key.chat_id,
+                    session_name,
+                    "",
+                    expected_session=ns,
+                    reservation_gen=generation,
+                )
+                return OrchestratorResult(text="")
+            if response.is_error:
+                orch._named_sessions.update_after_response(
+                    key.chat_id,
+                    session_name,
+                    response.session_id or "",
+                    expected_session=ns,
+                    reservation_gen=generation,
+                )
+                return OrchestratorResult(
+                    text=f"{tag}{t('error.generic', detail=response.result[:500])}"
+                )
 
-    orch._named_sessions.update_after_response(key.chat_id, session_name, response.session_id or "")
-    return OrchestratorResult(text=f"{tag}{response.result}")
+            orch._named_sessions.update_after_response(
+                key.chat_id,
+                session_name,
+                response.session_id or "",
+                expected_session=ns,
+                reservation_gen=generation,
+            )
+            return OrchestratorResult(text=f"{tag}{response.result}")
+        finally:
+            if execution_token is not None:
+                orch._process_registry.clear_label_abort(
+                    key.chat_id, named_process_label(session_name, execution_token)
+                )
+                orch._named_sessions.finish_execution(
+                    key.chat_id, session_name, execution_token
+                )
+            if ns.status == "running":
+                orch._named_sessions.update_after_response(
+                    key.chat_id, session_name, "", expected_session=ns
+                )
+            if permit:
+                orch._ia_limiter.release()
+            orch._named_sessions.prune_interagent(key.chat_id, orch._ns_locks)
 
 
 # ---------------------------------------------------------------------------

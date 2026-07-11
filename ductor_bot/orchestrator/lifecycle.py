@@ -196,6 +196,7 @@ async def shutdown(orch: Orchestrator) -> None:
         await orch._api_stop()
     await asyncio.to_thread(cleanup_ductor_links, orch._paths)
     await orch._observers.stop_all()
+    await orch._process_registry.drain_cleanup_tasks()
     if orch._docker:
         await orch._docker.teardown()
     logger.info("Orchestrator shutdown")

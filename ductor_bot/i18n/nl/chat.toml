@@ -449,4 +449,4 @@ changelog_header = "**Changelog v{version}**"
 # -- Multi-agent-meldingen --------------------------------------------------------
 
 [multiagent]
-async_task_received = "📥 **Async taak ontvangen** van `{sender}`\nSessie: `{session}` · Taak-ID: `{task_id}`\n\n_{preview}_"
+async_task_received = "📥 **Async taak ontvangen** van `{sender}`\nTaak-ID: `{task_id}`\n\n_{preview}_"

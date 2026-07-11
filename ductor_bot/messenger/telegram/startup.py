@@ -65,12 +65,13 @@ async def _handle_recovery(bot: TelegramBot, sentinel: dict[str, object] | None)
         await bot.notification_service.notify(action.chat_id, note)
         if action.kind == "named_session" and action.session_name:
             with contextlib.suppress(Exception):
-                bot._orch.submit_named_followup_bg(
+                await bot._orch.submit_named_followup_bg(
                     action.chat_id,
                     action.session_name,
                     action.prompt_preview,
                     message_id=0,
-                    thread_id=None,
+                    thread_id=action.topic_id,
+                    transport=action.transport,
                 )
     bot._orch.inflight_tracker.clear()
 

@@ -18,6 +18,8 @@ class BackgroundSubmit:
     resume_session_id: str = ""
     provider_override: str = ""
     model_override: str = ""
+    reservation_gen: int = 0
+    transport: str = "tg"
 
 
 @dataclass(slots=True)
@@ -35,6 +37,10 @@ class BackgroundTask:
     asyncio_task: asyncio.Task[None] | None = field(default=None, repr=False)
     session_name: str = ""
     resume_session_id: str = ""
+    reservation_gen: int = 0
+    transport: str = "tg"
+    result_delivery_task: asyncio.Task[None] | None = field(default=None, repr=False)
+    result_delivery_complete: bool = False
 
 
 @dataclass(slots=True)
@@ -53,3 +59,4 @@ class BackgroundResult:
     model: str
     session_name: str = ""
     session_id: str = ""
+    transport: str = "tg"

@@ -34,6 +34,7 @@ class _FakeBackgroundResult:
     model: str = "opus"
     session_name: str = "my-session"
     session_id: str = "sid1"
+    transport: str = "tg"
 
 
 @dataclass
@@ -93,6 +94,7 @@ def test_from_background_result() -> None:
     assert env.reply_to_message_id == 42
     assert env.session_name == "my-session"
     assert env.provider == "claude"
+    assert env.transport == "tg"
     assert not env.is_error
 
 

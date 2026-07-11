@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
+from ductor_bot.interagent_types import InterAgentOutcome
 from ductor_bot.multiagent.bus import (
     AsyncInterAgentResult,
     AsyncInterAgentTask,
@@ -16,7 +17,9 @@ from ductor_bot.multiagent.bus import (
 def _make_stack(orch_result: str = "ok") -> MagicMock:
     stack = MagicMock()
     orch = MagicMock()
-    orch.handle_interagent_message = AsyncMock(return_value=(orch_result, "session", ""))
+    orch.handle_interagent_message = AsyncMock(
+        return_value=InterAgentOutcome(orch_result, "session", "", ok=True)
+    )
     stack.bot.orchestrator = orch
     stack.bot.notification_service = MagicMock()
     stack.bot.notification_service.notify = AsyncMock()

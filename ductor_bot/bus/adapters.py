@@ -27,6 +27,7 @@ def from_background_result(result: BackgroundResult) -> Envelope:
     return Envelope(
         origin=Origin.BACKGROUND,
         chat_id=result.chat_id,
+        transport=result.transport,
         prompt_preview=result.prompt_preview,
         result_text=result.result_text,
         status=result.status,
@@ -158,11 +159,13 @@ def build_interagent_injection_prompt(
     if not result.success:
         return ""
     recipient = result.recipient or result.sender
+    resume_labels = {"tg": "Telegram chat", "mx": "Matrix room"}
+    resume_label = resume_labels.get(result.manual_resume_transport, transport_label)
     session_hint = (
         f"\nThe recipient processed this in session `{result.session_name}`. "
-        f"The user can continue this session in the recipient's {transport_label} "
+        f"The user can continue this session in the recipient's {resume_label} "
         f"via `@{result.session_name} <message>`."
-        if result.session_name
+        if result.session_name and result.manual_resume_supported
         else ""
     )
     task_context = (

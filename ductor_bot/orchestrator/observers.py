@@ -17,6 +17,9 @@ from ductor_bot.background import BackgroundObserver, BackgroundResult
 
 if TYPE_CHECKING:
     from ductor_bot.bus.bus import MessageBus
+    from ductor_bot.interagent_types import IARunningLimiter
+    from ductor_bot.session.lock_pool import NamedSessionLockPool
+    from ductor_bot.session.named import NamedSessionRegistry
 from ductor_bot.cleanup import CleanupObserver
 from ductor_bot.cli.antigravity_cache_observer import AntigravityCacheObserver
 from ductor_bot.cli.codex_cache import CodexModelCache
@@ -41,9 +44,20 @@ logger = logging.getLogger(__name__)
 class ObserverManager:
     """Owns all background observers and manages their lifecycle."""
 
-    def __init__(self, config: AgentConfig, paths: DuctorPaths) -> None:
+    def __init__(
+        self,
+        config: AgentConfig,
+        paths: DuctorPaths,
+        *,
+        named_sessions: NamedSessionRegistry | None = None,
+        named_locks: NamedSessionLockPool | None = None,
+        ia_limiter: IARunningLimiter | None = None,
+    ) -> None:
         self._config = config
         self._paths = paths
+        self._named_sessions = named_sessions
+        self._named_locks = named_locks
+        self._ia_limiter = ia_limiter
         self.heartbeat = HeartbeatObserver(config)
         self.cleanup = CleanupObserver(config, paths)
 
@@ -114,7 +128,13 @@ class ObserverManager:
         config, paths = self._config, self._paths
         self.codex_cache = codex_cache
         self.background = BackgroundObserver(
-            paths, timeout_seconds=config.timeouts.background, cli_service=cli_service
+            paths,
+            timeout_seconds=config.timeouts.background,
+            cli_service=cli_service,
+            named_sessions=self._named_sessions,
+            named_locks=self._named_locks,
+            ia_limiter=self._ia_limiter,
+            process_registry=cli_service._process_registry,
         )
         self.cron = CronObserver(paths, cron_manager, config=config, codex_cache=codex_cache)
         self.webhook = WebhookObserver(

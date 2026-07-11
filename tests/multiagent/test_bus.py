@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
+from ductor_bot.interagent_types import InterAgentOutcome
 from ductor_bot.multiagent.bus import AsyncSendOptions, InterAgentBus
 
 
@@ -17,7 +18,7 @@ def _make_stack(
     stack = MagicMock()
     orch = MagicMock()
     orch.handle_interagent_message = AsyncMock(
-        return_value=(orch_result, session_name, provider_notice),
+        return_value=InterAgentOutcome(orch_result, session_name, provider_notice, ok=True),
     )
     stack.bot.orchestrator = orch
     return stack
@@ -62,6 +63,22 @@ class TestBusSyncSend:
         assert result.text == "Hello back"
         assert result.sender == "recipient"
 
+    async def test_send_execution_failure_maps_to_error_response(self) -> None:
+        bus = InterAgentBus()
+        stack = _make_stack()
+        stack.bot.orchestrator.handle_interagent_message = AsyncMock(
+            return_value=InterAgentOutcome(
+                "execution failed", "ia-sender", "", ok=False, error_kind="execution"
+            )
+        )
+        bus.register("recipient", stack)
+
+        result = await bus.send("sender", "recipient", "Hello")
+
+        assert result.success is False
+        assert result.text == ""
+        assert result.error == "execution failed"
+
     async def test_send_to_unknown_agent(self) -> None:
         bus = InterAgentBus()
         result = await bus.send("sender", "unknown", "Hello")
@@ -87,9 +104,9 @@ class TestBusSyncSend:
         bus = InterAgentBus()
         stack = _make_stack()
 
-        async def slow_handler(_sender: str, _msg: str, **_kw: object) -> tuple[str, str, str]:
+        async def slow_handler(_sender: str, _msg: str, **_kw: object) -> InterAgentOutcome:
             await asyncio.sleep(10)
-            return "too late", "ia-sender", ""
+            return InterAgentOutcome("too late", "ia-sender", "", ok=True)
 
         stack.bot.orchestrator.handle_interagent_message = slow_handler
         bus.register("slow", stack)
@@ -162,6 +179,28 @@ class TestBusAsyncSend:
         assert result.result_text == "async response"
         assert result.task_id == task_id
 
+    async def test_send_async_execution_failure_delivers_error_result(self) -> None:
+        bus = InterAgentBus()
+        stack = _make_stack()
+        stack.bot.orchestrator.handle_interagent_message = AsyncMock(
+            return_value=InterAgentOutcome(
+                "execution failed", "ia-sender", "", ok=False, error_kind="execution"
+            )
+        )
+        bus.register("target", stack)
+        delivered: list[object] = []
+        bus.set_async_result_handler("sender", AsyncMock(side_effect=delivered.append))
+
+        task_id = bus.send_async("sender", "target", "Hello")
+        assert task_id is not None
+        await asyncio.sleep(0.1)
+
+        assert len(delivered) == 1
+        result = delivered[0]
+        assert result.success is False
+        assert result.result_text == ""
+        assert result.error == "execution failed"
+
     async def test_send_async_without_handler_does_not_crash(self) -> None:
         """If no result handler is registered, result is silently dropped."""
         bus = InterAgentBus()
@@ -174,9 +213,9 @@ class TestBusAsyncSend:
         bus = InterAgentBus()
         stack = _make_stack()
 
-        async def slow_handler(_sender: str, _msg: str, **_kw: object) -> tuple[str, str, str]:
+        async def slow_handler(_sender: str, _msg: str, **_kw: object) -> InterAgentOutcome:
             await asyncio.sleep(999)
-            return "never", "ia-sender", ""
+            return InterAgentOutcome("never", "ia-sender", "", ok=True)
 
         stack.bot.orchestrator.handle_interagent_message = slow_handler
         bus.register("slow", stack)
@@ -199,9 +238,9 @@ class TestBusCancelAllAsync:
         bus = InterAgentBus()
         stack = _make_stack()
 
-        async def slow(_s: str, _m: str, **_kw: object) -> tuple[str, str, str]:
+        async def slow(_s: str, _m: str, **_kw: object) -> InterAgentOutcome:
             await asyncio.sleep(999)
-            return "", "ia-sender", ""
+            return InterAgentOutcome("", "ia-sender", "", ok=True)
 
         stack.bot.orchestrator.handle_interagent_message = slow
         bus.register("target", stack)
@@ -231,6 +270,7 @@ class TestBusNewSessionFlag:
             "sender",
             "Hello",
             new_session=False,
+            origin=None,
         )
 
     async def test_sync_send_passes_new_session_true(self) -> None:
@@ -242,6 +282,7 @@ class TestBusNewSessionFlag:
             "sender",
             "Hello",
             new_session=True,
+            origin=None,
         )
 
     async def test_async_send_passes_new_session_to_handler(self) -> None:
@@ -249,9 +290,9 @@ class TestBusNewSessionFlag:
         bus = InterAgentBus()
         call_kwargs: list[dict[str, object]] = []
 
-        async def capturing_handler(sender: str, msg: str, **kw: object) -> tuple[str, str, str]:
+        async def capturing_handler(sender: str, msg: str, **kw: object) -> InterAgentOutcome:
             call_kwargs.append({"sender": sender, "msg": msg, **kw})
-            return "done", "ia-sender", ""
+            return InterAgentOutcome("done", "ia-sender", "", ok=True)
 
         stack = _make_stack()
         stack.bot.orchestrator.handle_interagent_message = capturing_handler
@@ -272,9 +313,9 @@ class TestBusNewSessionFlag:
         bus = InterAgentBus()
         call_kwargs: list[dict[str, object]] = []
 
-        async def capturing_handler(sender: str, msg: str, **kw: object) -> tuple[str, str, str]:
+        async def capturing_handler(sender: str, msg: str, **kw: object) -> InterAgentOutcome:
             call_kwargs.append({"sender": sender, "msg": msg, **kw})
-            return "done", "ia-sender", ""
+            return InterAgentOutcome("done", "ia-sender", "", ok=True)
 
         stack = _make_stack()
         stack.bot.orchestrator.handle_interagent_message = capturing_handler
@@ -346,7 +387,7 @@ class TestBusNotifyRecipient:
         call_args = mock_ns.notify.call_args
         assert call_args[0][0] == 12345  # chat_id
         assert "main" in call_args[0][1]  # sender name in text
-        assert "ia-main" in call_args[0][1]  # session name in text
+        assert "ia-main" not in call_args[0][1]
 
     async def test_notify_broadcasts_when_no_users(self) -> None:
         """When no allowed_user_ids, notify_all() is used instead."""

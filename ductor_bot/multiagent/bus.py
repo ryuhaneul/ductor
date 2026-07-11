@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from ductor_bot.i18n import t
+from ductor_bot.interagent_types import InterAgentOrigin
 
 if TYPE_CHECKING:
     from ductor_bot.multiagent.stack import AgentStack
@@ -110,6 +111,8 @@ class AsyncInterAgentResult:
     topic_id: int | None = None
     transport: str = ""
     reply_to: str = ""  # #86 — overrides sender for handler lookup when set
+    manual_resume_supported: bool = False
+    manual_resume_transport: str = ""
 
 
 AsyncResultCallback = Callable[["AsyncInterAgentResult"], Awaitable[None]]
@@ -142,7 +145,7 @@ class InterAgentBus:
         """List all registered agent names."""
         return list(self._agents.keys())
 
-    async def send(
+    async def send(  # noqa: PLR0913
         self,
         sender: str,
         recipient: str,
@@ -150,6 +153,7 @@ class InterAgentBus:
         *,
         send_timeout: float = _DEFAULT_TIMEOUT,
         new_session: bool = False,
+        origin: InterAgentOrigin | None = None,
     ) -> InterAgentResponse:
         """Send a message to another agent and wait for the response.
 
@@ -185,14 +189,23 @@ class InterAgentBus:
                     error=f"Agent '{recipient}' orchestrator not initialized",
                 )
 
-            result_text, _session_name, _notice = await asyncio.wait_for(
+            outcome = await asyncio.wait_for(
                 orch.handle_interagent_message(
                     sender,
                     message,
                     new_session=new_session,
+                    origin=origin,
                 ),
                 timeout=send_timeout,
             )
+            if not outcome.ok:
+                return InterAgentResponse(
+                    sender=recipient,
+                    text="",
+                    success=False,
+                    error=outcome.text,
+                )
+            result_text = outcome.text
             logger.info(
                 "Bus: %s -> %s completed (%d chars response)",
                 sender,
@@ -307,6 +320,8 @@ class InterAgentBus:
                         topic_id=task.topic_id,
                         transport=task.transport,
                         reply_to=task.reply_to,
+                        manual_resume_supported=self._manual_resume_supported(task.recipient),
+                        manual_resume_transport=self._manual_resume_transport(task.recipient),
                     )
                 )
                 return
@@ -314,14 +329,23 @@ class InterAgentBus:
             # Notify the recipient agent's Telegram chat about the incoming task
             await self._notify_recipient(task)
 
-            result_text, session_name, provider_notice = await asyncio.wait_for(
+            origin = InterAgentOrigin(
+                transport=task.transport,
+                chat_id=task.chat_id,
+                topic_id=task.topic_id,
+            )
+            outcome = await asyncio.wait_for(
                 orch.handle_interagent_message(
                     task.sender,
                     task.message,
                     new_session=task.new_session,
+                    origin=origin,
                 ),
                 timeout=_ASYNC_TIMEOUT,
             )
+            result_text = outcome.text
+            session_name = outcome.session_name
+            provider_notice = outcome.notice
             logger.info(
                 "Bus async: %s -> %s task=%s session=%s completed (%d chars, %.1fs)",
                 task.sender,
@@ -337,8 +361,9 @@ class InterAgentBus:
                     sender=task.sender,
                     recipient=task.recipient,
                     message_preview=task.message[:60],
-                    result_text=result_text,
-                    success=True,
+                    result_text=result_text if outcome.ok else "",
+                    success=outcome.ok,
+                    error=None if outcome.ok else result_text,
                     elapsed_seconds=time.time() - t0,
                     session_name=session_name,
                     provider_switch_notice=provider_notice,
@@ -347,6 +372,8 @@ class InterAgentBus:
                     topic_id=task.topic_id,
                     transport=task.transport,
                     reply_to=task.reply_to,
+                    manual_resume_supported=self._manual_resume_supported(task.recipient),
+                    manual_resume_transport=self._manual_resume_transport(task.recipient),
                 )
             )
 
@@ -372,6 +399,8 @@ class InterAgentBus:
                     topic_id=task.topic_id,
                     transport=task.transport,
                     reply_to=task.reply_to,
+                    manual_resume_supported=self._manual_resume_supported(task.recipient),
+                    manual_resume_transport=self._manual_resume_transport(task.recipient),
                 )
             )
 
@@ -392,8 +421,31 @@ class InterAgentBus:
                     topic_id=task.topic_id,
                     transport=task.transport,
                     reply_to=task.reply_to,
+                    manual_resume_supported=self._manual_resume_supported(task.recipient),
+                    manual_resume_transport=self._manual_resume_transport(task.recipient),
                 )
             )
+
+
+    def _manual_resume_supported(self, recipient: str) -> bool:
+        return bool(self._manual_resume_transport(recipient))
+
+    def _manual_resume_transport(self, recipient: str) -> str:
+        target = self._agents.get(recipient)
+        if target is None:
+            return ""
+        transports = getattr(target.config, "transports", None)
+        if not isinstance(transports, (list, tuple, set)) or not transports:
+            transports = [getattr(target.config, "transport", "")]
+        normalized = {
+            {"telegram": "tg", "matrix": "mx"}.get(
+                str(item).strip().lower(), str(item).strip().lower()
+            )
+            for item in transports
+        }
+        if "tg" in normalized and bool(getattr(target.config, "allowed_user_ids", [])):
+            return "tg"
+        return ""
 
     async def _notify_recipient(self, task: AsyncInterAgentTask) -> None:
         """Send a short notification to the recipient agent's chat.
@@ -420,11 +472,9 @@ class InterAgentBus:
                 preview = task.summary
             else:
                 preview = task.message if len(task.message) <= 200 else task.message[:200] + "…"
-            session_name = f"ia-{task.sender}"
             text = t(
                 "multiagent.async_task_received",
                 sender=task.sender,
-                session=session_name,
                 task_id=task.task_id,
                 preview=preview,
             )

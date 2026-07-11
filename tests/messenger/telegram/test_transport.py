@@ -204,9 +204,7 @@ class TestBackgroundDelivery:
         ) as mock_send:
             await transport.deliver(env)
 
-        bot._orch.named_sessions.update_after_response.assert_called_once_with(
-            42, "research", "sid-1"
-        )
+        bot._orch.named_sessions.update_after_response.assert_not_called()
         text = mock_send.call_args[0][2]
         assert "[research] Complete" in text
         assert "12s" in text

@@ -39,6 +39,7 @@ class ProcessRegistry:
         self._aborted_topics: set[tuple[int, int | None]] = set()
         self._aborted_labels: set[tuple[int, str]] = set()
         self._interrupted: set[int] = set()
+        self._cleanup_tasks: set[asyncio.Task[None]] = set()
         # MED #9: serialize bulk kill operations (kill_for_task / kill_stale /
         # kill_by_label) against each other so a concurrent ``register`` that
         # slips in mid-iteration can't orphan subprocesses past a cancel.
@@ -68,6 +69,18 @@ class ProcessRegistry:
             label=label,
             topic_id=topic_id,
         )
+        if (chat_id, label) in self._aborted_labels:
+            self._processes.setdefault(chat_id, []).append(tracked)
+            cleanup = asyncio.create_task(self._kill_late_registered(tracked))
+            self._cleanup_tasks.add(cleanup)
+            cleanup.add_done_callback(self._cleanup_tasks.discard)
+            logger.info(
+                "Late process queued for forced cleanup: chat=%d label=%s pid=%s",
+                chat_id,
+                label,
+                process.pid,
+            )
+            return tracked
         self._processes.setdefault(chat_id, []).append(tracked)
         logger.debug(
             "Process registered: chat=%d label=%s pid=%s",
@@ -76,6 +89,17 @@ class ProcessRegistry:
             process.pid,
         )
         return tracked
+
+    async def _kill_late_registered(self, tracked: TrackedProcess) -> None:
+        try:
+            await _kill_processes([tracked])
+        finally:
+            self.unregister(tracked)
+
+    async def drain_cleanup_tasks(self) -> None:
+        """Wait for pending late-process kill ladders to finish."""
+        while self._cleanup_tasks:
+            await asyncio.gather(*list(self._cleanup_tasks), return_exceptions=True)
 
     def unregister(self, tracked: TrackedProcess) -> None:
         """Remove a tracked process (idempotent)."""
@@ -113,13 +137,21 @@ class ProcessRegistry:
         async with self._kill_lock:
             entries = self._processes.get(chat_id, [])
             targets = [
-                t for t in entries if t.topic_id == topic_id and t.process.returncode is None
+                t
+                for t in entries
+                if not t.label.startswith("ns:")
+                and t.topic_id == topic_id
+                and t.process.returncode is None
             ]
             if not targets:
                 return 0
             self._aborted_topics.add((chat_id, topic_id))
             remaining = [
-                t for t in entries if t.topic_id != topic_id or t.process.returncode is not None
+                t
+                for t in entries
+                if t.label.startswith("ns:")
+                or t.topic_id != topic_id
+                or t.process.returncode is not None
             ]
             if remaining:
                 self._processes[chat_id] = remaining
@@ -187,6 +219,10 @@ class ProcessRegistry:
     def clear_label_abort(self, chat_id: int, label: str) -> None:
         """Clear the abort flag for a specific label."""
         self._aborted_labels.discard((chat_id, label))
+
+    def was_aborted_label(self, chat_id: int, label: str) -> bool:
+        """Check whether a generation-scoped process label was aborted."""
+        return (chat_id, label) in self._aborted_labels
 
     def interrupt_all(self, chat_id: int) -> int:
         """Send SIGINT to every active process for *chat_id*.

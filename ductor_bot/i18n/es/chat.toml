@@ -449,4 +449,4 @@ changelog_header = "**Changelog v{version}**"
 # -- Notificaciones multi-agente -----------------------------------------------
 
 [multiagent]
-async_task_received = "📥 **Tarea asíncrona recibida** de `{sender}`\nSesión: `{session}` · ID de tarea: `{task_id}`\n\n_{preview}_"
+async_task_received = "📥 **Tarea asíncrona recibida** de `{sender}`\nID de tarea: `{task_id}`\n\n_{preview}_"
