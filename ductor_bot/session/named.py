@@ -346,7 +346,7 @@ class NamedSessionRegistry:
 
         If *chat_id* is given, only return sessions for that chat.
         If *transport* is given, only return sessions for that transport.
-        Excludes inter-agent sessions (``ia-`` prefix).
+        Excludes inter-agent sessions (``ia-`` or ``ia.`` prefix).
         """
         results: list[NamedSession] = []
         to_remove: list[tuple[int, str]] = []
@@ -355,7 +355,7 @@ class NamedSessionRegistry:
                 continue
             if transport is not None and ns.transport != transport:
                 continue
-            if ns.name.startswith("ia-"):
+            if ns.name.startswith(("ia-", "ia.")):
                 continue
             results.append(ns)
             to_remove.append(key)

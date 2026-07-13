@@ -8,7 +8,9 @@ Note: task *results* are injected via the MessageBus (see ``bus.adapters``).
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import re
 import time
 from typing import TYPE_CHECKING
 
@@ -31,6 +33,22 @@ def _transport_id(value: str) -> str:
     """Return the short transport id used by SessionKey and Envelope."""
     stripped = value.strip().lower()
     return _TRANSPORT_ALIASES.get(stripped, stripped or "tg")
+
+
+def _interagent_session_name(
+    sender: str,
+    source_chat_id: int = 0,
+    source_topic_id: int | None = None,
+) -> str:
+    """Return the legacy or chat/topic-scoped inter-agent session name."""
+    if not source_chat_id:
+        return f"ia-{sender}"
+    slug = re.sub(r"[^a-z0-9]+", "-", sender.lower()).strip("-")[:12] or "agent"
+    topic = f"t{source_topic_id}" if source_topic_id is not None else "t0"
+    digest = hashlib.sha256(f"{sender}\0{source_chat_id}\0{source_topic_id}".encode()).hexdigest()[
+        :8
+    ]
+    return f"{f'ia.{slug}.{topic}'[:30]}.x{digest}"
 
 
 # ---------------------------------------------------------------------------
@@ -98,11 +116,13 @@ def _get_or_create_interagent_session(
     sender: str,
     *,
     new_session: bool = False,
+    source_chat_id: int = 0,
+    source_topic_id: int | None = None,
 ) -> tuple[NamedSession, bool, str]:
     """Get or create a Named Session for an inter-agent conversation.
 
-    Uses a deterministic name ``ia-{sender}`` so follow-up messages from
-    the same sender automatically resume the same session.
+    Uses a deterministic name scoped by sender chat/topic. Calls without
+    source context keep the legacy ``ia-{sender}`` name.
 
     If *new_session* is True, any existing session for this sender is
     ended first so a fresh one is created.
@@ -114,7 +134,7 @@ def _get_or_create_interagent_session(
     Returns ``(session, is_new, provider_switch_notice)``.
     """
     chat_id = _interagent_chat_id(orch)
-    session_name = f"ia-{sender}"
+    session_name = _interagent_session_name(sender, source_chat_id, source_topic_id)
     provider_switch_notice = ""
 
     if new_session and orch._named_sessions.end_session(chat_id, session_name):
@@ -164,12 +184,14 @@ def _get_or_create_interagent_session(
 # ---------------------------------------------------------------------------
 
 
-async def handle_interagent_message(
+async def handle_interagent_message(  # noqa: PLR0913
     orch: Orchestrator,
     sender: str,
     message: str,
     *,
     new_session: bool = False,
+    source_chat_id: int = 0,
+    source_topic_id: int | None = None,
 ) -> tuple[str, str, str]:
     """Process a message from another agent via the InterAgentBus.
 
@@ -188,6 +210,8 @@ async def handle_interagent_message(
         orch,
         sender,
         new_session=new_session,
+        source_chat_id=source_chat_id,
+        source_topic_id=source_topic_id,
     )
 
     prompt = (
@@ -239,7 +263,13 @@ async def handle_interagent_message(
             stale_id,
         )
         orch._named_sessions.end_session(chat_id, ns.name)
-        ns, _, _ = _get_or_create_interagent_session(orch, sender, new_session=True)
+        ns, _, _ = _get_or_create_interagent_session(
+            orch,
+            sender,
+            new_session=True,
+            source_chat_id=source_chat_id,
+            source_topic_id=source_topic_id,
+        )
         ns.status = "running"
         files_block = await build_appended_files_block(
             orch.paths, orch._config.append_system_prompt_files

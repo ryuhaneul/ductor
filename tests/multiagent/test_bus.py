@@ -261,12 +261,14 @@ class TestBusNewSessionFlag:
             "sender",
             "target",
             "Hello",
-            opts=AsyncSendOptions(new_session=True),
+            opts=AsyncSendOptions(new_session=True, chat_id=777, topic_id=10),
         )
         await asyncio.sleep(0.1)
 
         assert len(call_kwargs) == 1
         assert call_kwargs[0]["new_session"] is True
+        assert call_kwargs[0]["source_chat_id"] == 777
+        assert call_kwargs[0]["source_topic_id"] == 10
 
     async def test_async_send_new_session_false_by_default(self) -> None:
         bus = InterAgentBus()

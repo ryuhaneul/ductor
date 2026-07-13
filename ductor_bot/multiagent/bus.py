@@ -142,7 +142,7 @@ class InterAgentBus:
         """List all registered agent names."""
         return list(self._agents.keys())
 
-    async def send(
+    async def send(  # noqa: PLR0913
         self,
         sender: str,
         recipient: str,
@@ -150,6 +150,8 @@ class InterAgentBus:
         *,
         send_timeout: float = _DEFAULT_TIMEOUT,
         new_session: bool = False,
+        chat_id: int = 0,
+        topic_id: int | None = None,
     ) -> InterAgentResponse:
         """Send a message to another agent and wait for the response.
 
@@ -185,12 +187,22 @@ class InterAgentBus:
                     error=f"Agent '{recipient}' orchestrator not initialized",
                 )
 
-            result_text, _session_name, _notice = await asyncio.wait_for(
-                orch.handle_interagent_message(
+            if chat_id or topic_id is not None:
+                execution = orch.handle_interagent_message(
                     sender,
                     message,
                     new_session=new_session,
-                ),
+                    source_chat_id=chat_id,
+                    source_topic_id=topic_id,
+                )
+            else:
+                execution = orch.handle_interagent_message(
+                    sender,
+                    message,
+                    new_session=new_session,
+                )
+            result_text, _session_name, _notice = await asyncio.wait_for(
+                execution,
                 timeout=send_timeout,
             )
             logger.info(
@@ -314,12 +326,22 @@ class InterAgentBus:
             # Notify the recipient agent's Telegram chat about the incoming task
             await self._notify_recipient(task)
 
-            result_text, session_name, provider_notice = await asyncio.wait_for(
-                orch.handle_interagent_message(
+            if task.chat_id or task.topic_id is not None:
+                execution = orch.handle_interagent_message(
                     task.sender,
                     task.message,
                     new_session=task.new_session,
-                ),
+                    source_chat_id=task.chat_id,
+                    source_topic_id=task.topic_id,
+                )
+            else:
+                execution = orch.handle_interagent_message(
+                    task.sender,
+                    task.message,
+                    new_session=task.new_session,
+                )
+            result_text, session_name, provider_notice = await asyncio.wait_for(
+                execution,
                 timeout=_ASYNC_TIMEOUT,
             )
             logger.info(
