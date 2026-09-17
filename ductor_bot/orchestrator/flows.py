@@ -914,8 +914,6 @@ async def heartbeat_flow(
         )
         return None
 
-    await orch._sessions.sync_session_target(session, model=req_model)
-
     idle_seconds = (datetime.now(UTC) - datetime.fromisoformat(session.last_active)).total_seconds()
     cooldown_seconds = hb_cfg.cooldown_minutes * 60
     if idle_seconds < cooldown_seconds:
@@ -928,7 +926,7 @@ async def heartbeat_flow(
 
     request = AgentRequest(
         prompt=effective_prompt,
-        model_override=req_model,
+        model_override=session.model or req_model,
         provider_override=req_provider,
         effort_override=session.reasoning_effort or None,
         chat_id=key.chat_id,

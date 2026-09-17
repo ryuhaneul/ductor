@@ -253,3 +253,31 @@ async def test_heartbeat_skips_when_session_provider_differs_from_configured_pro
     assert session_after.provider == "codex"
     assert session_after.model == "opus"
     assert session_after.message_count == count_before
+
+
+async def test_heartbeat_preserves_session_model(
+    orch: Orchestrator, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A heartbeat must not rewrite the session's model to the configured default.
+
+    The session's model is a per-chat user choice (``/model``). The heartbeat is
+    a read-only liveness check, so it has to leave that choice alone -- and run
+    the turn with it, the way it already does for ``reasoning_effort``.
+    """
+    key = SessionKey(chat_id=1)
+    session, _ = await orch._sessions.resolve_session(key, provider="claude", model="sonnet")
+    session.session_id = "sid-model-preserved"
+    await orch._sessions.update_session(session)
+    assert orch._config.model != "sonnet"
+
+    with _past_cooldown():
+        execute = AsyncMock(return_value=_mock_response(result="HEARTBEAT_OK"))
+        monkeypatch.setattr(orch._cli_service, "execute", execute)
+        assert await heartbeat_flow(orch, key) is None
+
+    # The turn ran with the session's model, not the configured default.
+    assert execute.await_args.args[0].model_override == "sonnet"
+    # And the stored session still carries the user's choice.
+    stored = await orch._sessions.get_active(key)
+    assert stored is not None
+    assert stored.model == "sonnet"
